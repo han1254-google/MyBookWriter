@@ -7,6 +7,7 @@ export default function UploadPage() {
   const [libraries, setLibraries] = useState<Record<string, Record<string, string[]>>>({});
   const [files, setFiles] = useState<Array<Record<string, unknown>>>([]);
   const [activeLib, setActiveLib] = useState('知识库');
+  const [selectedLib, setSelectedLib] = useState('知识库');
   const [uploading, setUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -23,7 +24,7 @@ export default function UploadPage() {
   const handleUpload = async (file: File) => {
     setUploading(true);
     try {
-      const result = await uploadApi.upload(file);
+      const result = await uploadApi.upload(file, selectedLib);
       addToast(`✅ ${file.name} → ${result.library_type}/${result.folder_name}`, 'success');
       setUploadDone(true);
       setTimeout(() => setUploadDone(false), 3000);
@@ -59,7 +60,25 @@ export default function UploadPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">📁 资料管理</h1>
-      <p className="text-[var(--text-secondary)] mb-6">上传 PDF/EPUB/Word/TXT 文件，AI 自动分类</p>
+      <p className="text-[var(--text-secondary)] mb-4">上传 PDF/EPUB/Word/TXT 文件，AI 自动建议文件夹名</p>
+
+      {/* Library type selector */}
+      <div className="flex items-center gap-3 mb-4">
+        <span className="text-sm text-[var(--text-secondary)] whitespace-nowrap">上传到：</span>
+        {['知识库', '参考库', '风格库'].map((lib) => (
+          <button
+            key={lib}
+            onClick={() => setSelectedLib(lib)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              selectedLib === lib
+                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)]'
+            }`}
+          >
+            {{ '知识库': '📚', '参考库': '📖', '风格库': '🎨' }[lib]} {lib}
+          </button>
+        ))}
+      </div>
 
       {/* Upload zone */}
       <div

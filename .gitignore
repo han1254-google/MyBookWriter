@@ -36,5 +36,8 @@ knowledge_rag/chroma_db/
 # RAG 缓存
 knowledge_rag/.file_fingerprints.json
 
+# 日志
+logs/
+
 # Large media (uncomment if needed)
 # imgs/

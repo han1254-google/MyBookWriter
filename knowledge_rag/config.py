@@ -7,8 +7,18 @@ import os
 # ============================================================
 # 路径配置
 # ============================================================
-# 知识库 PDF 存放的根目录
-KNOWLEDGE_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "知识库")
+MYBOOKAPPS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 三库源目录（都会被扫描索引）
+# 每个元组: (目录路径, library_type 标签)
+SOURCE_DIRS = [
+    # 项目级知识库（原始 PDF）
+    (os.path.join(MYBOOKAPPS_ROOT, "知识库"), "知识库"),
+    # 用户上传的文件
+    (os.path.join(MYBOOKAPPS_ROOT, "libraries", "知识库"), "知识库"),
+    (os.path.join(MYBOOKAPPS_ROOT, "libraries", "参考库"), "参考库"),
+    (os.path.join(MYBOOKAPPS_ROOT, "libraries", "风格库"), "风格库"),
+]
 
 # ChromaDB 向量数据库持久化目录
 CHROMA_DB_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")

@@ -11,6 +11,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, send_from_directory
 from app_config import DB_PATH, SECRET_KEY, MAX_CONTENT_LENGTH, UPLOAD_FOLDER, MYBOOKAPPS_ROOT
 from database import db
+from logger import init_app_logging, get_logger
+
+log = get_logger("app")
+
+
+def create_app():
+    app = Flask(__name__, static_folder=None)
+
+    # ---- 日志系统 ----
+    init_app_logging(app)
+    log.info("=" * 50)
+    log.info("  📚 MyBookApps 启动中...")
+    log.info("=" * 50)
 
 
 def create_app():
@@ -27,6 +40,7 @@ def create_app():
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        log.info(f"  数据库: {DB_PATH}")
 
     # ---- CORS 支持（开发模式 Vite 跨域）----
     @app.after_request

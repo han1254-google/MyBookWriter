@@ -8,8 +8,10 @@ from database import db, Idea, Outline
 from services.deepseek_service import deepseek
 from services.rag_service import rag
 from app_config import WRITING_STYLE_GUIDE
+from logger import get_logger
 
 api_outlines_bp = Blueprint("api_outlines", __name__)
+log = get_logger("api.outlines")
 
 
 @api_outlines_bp.route("/outlines/generate", methods=["POST"])
@@ -21,6 +23,8 @@ def generate_outline():
 
     if not idea_id and not user_prompt:
         return jsonify({"error": "请选择创意或输入提示"}), 400
+
+    log.info(f"生成大纲: idea_id={idea_id}, prompt={user_prompt[:80] if user_prompt else 'N/A'}")
 
     # 构建上下文
     idea_context = ""
@@ -87,6 +91,7 @@ def generate_outline():
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_text}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"大纲生成流失败: {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(
@@ -104,6 +109,8 @@ def chat_outline(outline_id):
     user_message = data.get("message", "").strip()
     if not user_message:
         return jsonify({"error": "请输入消息"}), 400
+
+    log.info(f"大纲对话: outline_id={outline_id}, msg={user_message[:60]}...")
 
     try:
         history = json.loads(outline.chat_history or "[]")
@@ -138,6 +145,7 @@ def chat_outline(outline_id):
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"大纲对话流失败: {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(
@@ -164,6 +172,7 @@ def save_outline():
     )
     db.session.add(outline)
     db.session.commit()
+    log.info(f"大纲已保存: id={outline.id}, title={title}, idea_id={idea_id}")
 
     return jsonify({"success": True, "id": outline.id, "outline": outline.to_dict()})
 
@@ -172,6 +181,7 @@ def save_outline():
 def list_outlines():
     """列出所有大纲"""
     outlines = Outline.query.order_by(Outline.updated_at.desc()).all()
+    log.debug(f"列出大纲: {len(outlines)} 个")
     return jsonify([o.to_dict() for o in outlines])
 
 
@@ -179,6 +189,7 @@ def list_outlines():
 def get_outline(outline_id):
     """获取大纲详情"""
     outline = Outline.query.get_or_404(outline_id)
+    log.debug(f"获取大纲: id={outline_id}, title={outline.title}")
     return jsonify(outline.to_dict())
 
 
@@ -186,6 +197,7 @@ def get_outline(outline_id):
 def delete_outline(outline_id):
     """删除大纲"""
     outline = Outline.query.get_or_404(outline_id)
+    log.info(f"删除大纲: id={outline_id}, title={outline.title}")
     db.session.delete(outline)
     db.session.commit()
     return jsonify({"success": True})

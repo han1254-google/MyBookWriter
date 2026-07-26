@@ -6,8 +6,10 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context
 
 from services.deepseek_service import deepseek
 from app_config import WRITING_STYLE_GUIDE
+from logger import get_logger
 
 api_rewrite_bp = Blueprint("api_rewrite", __name__)
+log = get_logger("api.rewrite")
 
 
 @api_rewrite_bp.route("/rewrite/analyze", methods=["POST"])
@@ -20,6 +22,8 @@ def analyze_article():
 
     if len(text) < 100:
         return jsonify({"error": "文章太短，请至少粘贴100字"}), 400
+
+    log.info(f"分析文章: {len(text)} 字")
 
     system_prompt = f"""{WRITING_STYLE_GUIDE}
 
@@ -63,9 +67,11 @@ def analyze_article():
         except json.JSONDecodeError:
             result = {"raw_analysis": response}
 
+        log.info(f"分析完成: {len(response)} 字符响应")
         return jsonify({"success": True, "analysis": result})
 
     except Exception as e:
+        log.error(f"分析失败: {type(e).__name__}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -78,6 +84,8 @@ def rewrite_article():
 
     if not text:
         return jsonify({"error": "请粘贴文章内容"}), 400
+
+    log.info(f"改写文章: {len(text)} 字, instructions={instructions[:60] if instructions else '无'}")
 
     system_prompt = f"""{WRITING_STYLE_GUIDE}
 
@@ -111,6 +119,7 @@ def rewrite_article():
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_text}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"改写流失败: {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(

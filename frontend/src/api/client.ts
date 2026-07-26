@@ -106,9 +106,10 @@ export const rewriteApi = {
 
 // ---- Upload ----
 export const uploadApi = {
-  upload: async (file: File) => {
+  upload: async (file: File, libraryType?: string) => {
     const formData = new FormData();
     formData.append('file', file);
+    if (libraryType) formData.append('library_type', libraryType);
     const resp = await fetch(`${BASE}/upload`, { method: 'POST', body: formData });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: 'Upload failed' }));

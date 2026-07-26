@@ -9,8 +9,10 @@ from database import db, Idea, Outline, Chapter
 from services.deepseek_service import deepseek
 from services.rag_service import rag
 from app_config import WRITING_STYLE_GUIDE, PRECHA_TEMPLATE
+from logger import get_logger
 
 api_writing_bp = Blueprint("api_writing", __name__)
+log = get_logger("api.writing")
 
 
 def _extract_precha(chapter_text, prev_chapter):
@@ -52,6 +54,7 @@ def start_writing():
 
     outline = Outline.query.get_or_404(outline_id)
     idea = Idea.query.get(outline.idea_id) if outline.idea_id else None
+    log.info(f"开始写作: outline_id={outline_id}, title={outline.title}")
 
     # 构建上下文
     idea_text = idea.content if idea else "（无设定）"
@@ -111,6 +114,7 @@ prechaLink /
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_text, 'chapter_title': chapter_title, 'chapter_number': 1}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"写作首章生成失败: {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(
@@ -132,6 +136,7 @@ def generate_chapter():
 
     outline = Outline.query.get_or_404(outline_id)
     idea = Idea.query.get(outline.idea_id) if outline.idea_id else None
+    log.info(f"生成章节: outline_id={outline_id}, chapter_num={chapter_num}")
 
     # 获取上一章
     prev_chapter = Chapter.query.filter_by(
@@ -139,6 +144,7 @@ def generate_chapter():
     ).first()
 
     if not prev_chapter or prev_chapter.status != "completed":
+        log.warning(f"上一章未完成: prev_chapter={prev_chapter.id if prev_chapter else None}")
         return jsonify({"error": "请先完成上一章"}), 400
 
     # 构建上下文
@@ -202,6 +208,7 @@ prechaLink CHA{chapter_num - 1}.md
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_text, 'chapter_title': chapter_title, 'chapter_number': chapter_num}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"章节生成失败(ch{chapter_num}): {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(
@@ -219,6 +226,8 @@ def chat_chapter(chapter_id):
     user_message = data.get("message", "").strip()
     if not user_message:
         return jsonify({"error": "请输入消息"}), 400
+
+    log.info(f"章节对话: chapter_id={chapter_id}, msg={user_message[:60]}...")
 
     outline = Outline.query.get(chapter.outline_id)
     idea = Idea.query.get(outline.idea_id) if outline and outline.idea_id else None
@@ -250,6 +259,7 @@ def chat_chapter(chapter_id):
             yield f"data: {json.dumps({'type': 'done', 'full_text': full_response}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
+            log.error(f"章节对话失败(ch{chapter_id}): {type(e).__name__}: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return Response(
@@ -272,20 +282,15 @@ def save_chapter():
     if not outline_id or not chapter_number:
         return jsonify({"error": "缺少参数"}), 400
 
-    # 查找或创建章节
     chapter = Chapter.query.filter_by(
         outline_id=outline_id, chapter_number=chapter_number
     ).first()
 
     if not chapter:
-        # 获取上一章
         prev_chapter = Chapter.query.filter_by(
             outline_id=outline_id, chapter_number=chapter_number - 1
         ).first()
-
-        # 提取 PRECHA
         precha_info = _extract_precha(content, prev_chapter)
-
         chapter = Chapter(
             outline_id=outline_id,
             chapter_number=chapter_number,
@@ -297,13 +302,14 @@ def save_chapter():
             precha_content=precha_info["precha_content"],
         )
         db.session.add(chapter)
+        log.info(f"章节已创建: outline_id={outline_id}, ch{chapter_number}, title={title}, status={status}")
     else:
         chapter.title = title
         chapter.content = content
         chapter.status = status
+        log.info(f"章节已更新: outline_id={outline_id}, ch{chapter_number}, title={title}, status={status}")
 
     db.session.commit()
-
     return jsonify({"success": True, "chapter": chapter.to_dict()})
 
 
@@ -313,6 +319,7 @@ def get_chapters(outline_id):
     chapters = Chapter.query.filter_by(outline_id=outline_id).order_by(
         Chapter.chapter_number
     ).all()
+    log.debug(f"列出章节: outline_id={outline_id}, {len(chapters)} 章")
     return jsonify([c.to_dict() for c in chapters])
 
 
@@ -325,20 +332,20 @@ def export_book(outline_id):
     ).order_by(Chapter.chapter_number).all()
 
     if not chapters:
+        log.warning(f"导出失败: 没有已完成的章节, outline_id={outline_id}")
         return jsonify({"error": "没有已完成的章节"}), 400
 
-    # 拼接全书
     full_book = f"# {outline.title}\n\n"
     full_book += outline.content + "\n\n---\n\n"
 
     for ch in chapters:
-        # 只保留 CONTENT 部分
         content = ch.content
         content_match = re.search(r'## CONTENT\s*\n(.+)', content, re.DOTALL)
         if content_match:
             content = content_match.group(1)
         full_book += f"# CHA{ch.chapter_number} {ch.title}\n\n{content}\n\n---\n\n"
 
+    log.info(f"导出全书: outline_id={outline_id}, title={outline.title}, {len(chapters)} 章, {len(full_book)} 字")
     return jsonify({
         "success": True,
         "title": outline.title,

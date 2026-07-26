@@ -4,6 +4,19 @@ MyBookApps 全局配置
 import os
 import sys
 
+# ---- 加载 .env 文件 ----
+def _load_env():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(), value.strip())
+
+_load_env()
+
 # ---- 项目根目录 ----
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MYBOOKAPPS_ROOT = os.path.dirname(os.path.abspath(__file__))
