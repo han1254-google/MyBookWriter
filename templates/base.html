@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MyBookApps — 科幻写作助手{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-brand">
+            <a href="/" class="brand-link">📚 MyBookApps</a>
+            <span class="brand-sub">科幻写作助手</span>
+        </div>
+        <ul class="sidebar-nav">
+            <li><a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
+                <span class="nav-icon">🏠</span> 首页
+            </a></li>
+            <li><a href="/upload" class="nav-item {% if request.path.startswith('/upload') %}active{% endif %}">
+                <span class="nav-icon">📁</span> 资料管理
+            </a></li>
+            <li><a href="/ideas" class="nav-item {% if request.path.startswith('/ideas') %}active{% endif %}">
+                <span class="nav-icon">💡</span> 创意工坊
+            </a></li>
+            <li><a href="/outlines" class="nav-item {% if request.path.startswith('/outlines') %}active{% endif %}">
+                <span class="nav-icon">📋</span> 大纲工坊
+            </a></li>
+            <li><a href="/writing" class="nav-item {% if request.path.startswith('/writing') %}active{% endif %}">
+                <span class="nav-icon">✍️</span> 写作工坊
+            </a></li>
+            <li><a href="/rewrite" class="nav-item {% if request.path.startswith('/rewrite') %}active{% endif %}">
+                <span class="nav-icon">🔧</span> 改写工坊
+            </a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="api-status" id="api-status">
+                <span class="status-dot"></span> DeepSeek API
+            </div>
+        </div>
+    </nav>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="/static/js/common.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

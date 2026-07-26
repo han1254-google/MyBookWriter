@@ -1,0 +1,28 @@
+# Dependencies
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output / build artifacts
+frontend/dist/
+
+# Environment files
+.env
+.env.local
+
+# Large media (uncomment if needed)
+# imgs/

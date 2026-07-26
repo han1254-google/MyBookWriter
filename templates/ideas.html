@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}创意工坊 — MyBookApps{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">💡 创意工坊</h1>
+    <p class="page-desc">RAG 知识库检索 + DeepSeek AI 辅助科幻创意生成</p>
+</div>
+
+<div class="workspace two-col-layout">
+    <!-- 左侧：生成面板 -->
+    <div class="panel panel-left">
+        <h2 class="panel-title">生成新创意</h2>
+
+        <div class="form-group">
+            <label>写作提示</label>
+            <textarea id="idea-prompt" class="form-textarea" rows="4"
+                placeholder="描述你想要的科幻创意，例如：&#10;潮汐锁定星球上的原住民如何发展文明？&#10;基于大气生物的食物链顶端的捕食者是什么形态？"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>知识库分类过滤（可选）</label>
+            <select id="idea-category" class="form-select">
+                <option value="">全部知识库</option>
+                {% for cat in rag_categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button id="btn-generate" class="btn btn-primary btn-block" onclick="generateIdea()">
+            🚀 生成创意
+        </button>
+
+        <div id="rag-panel" class="rag-panel hidden">
+            <h3>📚 知识库参考</h3>
+            <div id="rag-results"></div>
+        </div>
+    </div>
+
+    <!-- 右侧：输出 + 历史 -->
+    <div class="panel panel-right">
+        <div id="output-area" class="output-area">
+            <div class="output-placeholder">
+                <p>点击"生成创意"开始</p>
+                <p class="hint">AI 将检索知识库中的相关科学资料，生成科幻设定</p>
+            </div>
+            <div id="stream-output" class="stream-content markdown-body hidden"></div>
+        </div>
+
+        <div id="save-area" class="save-area hidden">
+            <button class="btn btn-success" onclick="saveIdea()">💾 保存到数据库</button>
+        </div>
+    </div>
+</div>
+
+<!-- 历史创意列表 -->
+<div class="section">
+    <h2 class="section-title">已保存的创意</h2>
+    {% if ideas %}
+    <div class="idea-grid">
+        {% for idea in ideas %}
+        <div class="idea-card">
+            <h3><a href="/ideas/{{ idea.id }}">{{ idea.title }}</a></h3>
+            <p class="idea-preview">{{ idea.content[:150] }}{% if idea.content|length > 150 %}...{% endif %}</p>
+            <div class="idea-meta">
+                <span>{{ idea.updated_at.strftime('%Y-%m-%d %H:%M') if idea.updated_at else '' }}</span>
+                <button class="btn btn-sm btn-danger" onclick="deleteIdea({{ idea.id }})">删除</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-hint">暂无已保存的创意</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/ideas.js"></script>
+{% endblock %}

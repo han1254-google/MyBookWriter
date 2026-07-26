@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}MyBookApps — 首页{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1 class="page-title">科幻写作助手</h1>
+    <p class="page-desc">知识库驱动的 AI 辅助科幻创作平台</p>
+
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.ideas }}</div>
+            <div class="stat-label">创意设定</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.outlines }}</div>
+            <div class="stat-label">故事大纲</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.chapters }}</div>
+            <div class="stat-label">完成章节</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.files }}</div>
+            <div class="stat-label">资料文件</div>
+        </div>
+    </div>
+
+    <!-- 知识库状态 -->
+    <div class="section">
+        <h2 class="section-title">知识库状态</h2>
+        {% if rag_available %}
+        <div class="rag-status ok">
+            ✅ 向量知识库已就绪
+            <span class="rag-cats">{{ rag_categories|join(', ') }}</span>
+        </div>
+        {% else %}
+        <div class="rag-status warn">
+            ⚠️ 向量知识库未构建，请运行 <code>python knowledge_rag/build_index.py</code>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 快捷入口 -->
+    <div class="quick-actions">
+        <a href="/ideas" class="action-card">
+            <span class="action-icon">💡</span>
+            <span class="action-title">生成创意</span>
+            <span class="action-desc">RAG 检索 + AI 辅助科幻设定</span>
+        </a>
+        <a href="/outlines" class="action-card">
+            <span class="action-icon">📋</span>
+            <span class="action-title">创建大纲</span>
+            <span class="action-desc">从创意生成章节规划</span>
+        </a>
+        <a href="/writing" class="action-card">
+            <span class="action-icon">✍️</span>
+            <span class="action-title">开始写作</span>
+            <span class="action-desc">逐章创作，PRECHA 模板</span>
+        </a>
+        <a href="/rewrite" class="action-card">
+            <span class="action-icon">🔧</span>
+            <span class="action-title">文章改写</span>
+            <span class="action-desc">风格诊断与优化建议</span>
+        </a>
+    </div>
+
+    <!-- 最近记录 -->
+    <div class="two-col">
+        <div class="section">
+            <h2 class="section-title">最近创意 <a href="/ideas" class="more-link">全部 →</a></h2>
+            {% if recent_ideas %}
+            <ul class="item-list">
+                {% for idea in recent_ideas %}
+                <li class="item-row">
+                    <a href="/ideas/{{ idea.id }}">{{ idea.title }}</a>
+                    <span class="item-date">{{ idea.updated_at.strftime('%m-%d %H:%M') if idea.updated_at else '' }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-hint">暂无创意，<a href="/ideas">开始创建</a></p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">最近大纲 <a href="/outlines" class="more-link">全部 →</a></h2>
+            {% if recent_outlines %}
+            <ul class="item-list">
+                {% for outline in recent_outlines %}
+                <li class="item-row">
+                    <a href="/outlines/{{ outline.id }}">{{ outline.title }}</a>
+                    <span class="item-date">{{ outline.updated_at.strftime('%m-%d %H:%M') if outline.updated_at else '' }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty-hint">暂无大纲，<a href="/outlines">开始创建</a></p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
