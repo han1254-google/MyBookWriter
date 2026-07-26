@@ -39,5 +39,8 @@ knowledge_rag/.file_fingerprints.json
 # 日志
 logs/
 
+# 用户上传的资料文件
+libraries/
+
 # Large media (uncomment if needed)
 # imgs/
