@@ -155,7 +155,7 @@ def generate_chapter():
 
     system_prompt = f"""{WRITING_STYLE_GUIDE}
 
-你是一个科幻小说作家。请继续写下一章。
+你是一个科幻小说作家。现在要写的是 **第{chapter_num}章**，不是第1章，不是上一章。请严格基于上下文创作全新的内容。
 
 ## IDEA 设定
 {idea_text}
@@ -163,16 +163,21 @@ def generate_chapter():
 ## 完整大纲
 {outline.content}
 
-## 上一章 PRECHA 信息
-{prev_chapter.precha_content}
+## ⚠️ 上一章（CHA{chapter_num - 1}）的实际内容——你已经写完的，不要重复写它
+**本章必须从上一章的结尾处继续推进剧情，不得重复上一章的任何段落。**
 
-## 上一章结尾片段
-{prev_chapter.content[-500:] if prev_chapter.content else '（无）'}
+上一章结尾（请从这里继续写）：
+```
+{prev_chapter.content[-800:] if prev_chapter.content else '（无）'}
+```
+
+上一章 PRECHA 摘要：
+{prev_chapter.precha_content}
 
 ## 知识库参考资料
 {rag_context}
 
-请严格使用以下模板格式输出：
+请严格使用以下模板格式输出（注意：标题是 CHA{chapter_num}，不是 CHA1）：
 
 # CHA{chapter_num} 章节名
 
@@ -182,13 +187,13 @@ prechaName {prev_chapter.title}
 prechaLink CHA{chapter_num - 1}.md
 
 ## PRECHA CONTENT
-（请在 PRECHA CONTENT 中填入上一章的时间、地点、人物、起因、经过、结果、媒）
+（在 PRECHA CONTENT 中填入上一章的时间、地点、人物、起因、经过、结果、媒）
 
 ## CONTENT
 
-（正文开始）
+（正文从上一章结尾处开始，向前推进剧情）
 
-注意：叙述者（中介）的知识范围截止于本章时间点。禁止在叙事中引用未来事件。"""
+⚠️ 严禁重复上一章的任何内容。你是继续写，不是复读。"""
 
     def generate():
         try:

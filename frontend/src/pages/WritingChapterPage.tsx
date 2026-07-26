@@ -150,7 +150,7 @@ export default function WritingChapterPage() {
               to={`/writing/${oid}/${ch.chapter_number}`}
               className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded no-underline transition-colors ${
                 ch.chapter_number === cn
-                  ? 'bg-[var(--accent)] bg-opacity-20 text-[var(--accent)]'
+                  ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
               }`}
             >
