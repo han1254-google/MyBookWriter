@@ -20,18 +20,22 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".epub"}
 
 def _auto_summarize(file_id):
     """后台生成AI摘要（不阻塞上传响应）"""
+    from flask import current_app
     from services.deepseek_service import deepseek_flash
     try:
-        lib_file = LibraryFile.query.get(file_id)
-        if not lib_file or not lib_file.content_preview or lib_file.ai_summary:
-            return
-        prompt = f"""请用3-5句话总结以下文档的核心内容，用中文，简洁直接。
+        # 后台线程需要独立的 app context
+        app = current_app._get_current_object()
+        with app.app_context():
+            lib_file = LibraryFile.query.get(file_id)
+            if not lib_file or not lib_file.content_preview or lib_file.ai_summary:
+                return
+            prompt = f"""请用3-5句话总结以下文档的核心内容，用中文，简洁直接。
 文件名：{lib_file.original_filename}
 内容：{lib_file.content_preview[:3000]}"""
-        summary = deepseek_flash.chat(prompt, max_tokens=500)
-        lib_file.ai_summary = summary.strip()
-        db.session.commit()
-        log.info(f"自动摘要完成: id={file_id}, {len(summary)} 字符")
+            summary = deepseek_flash.chat(prompt, max_tokens=500)
+            lib_file.ai_summary = summary.strip()
+            db.session.commit()
+            log.info(f"自动摘要完成: id={file_id}, {len(summary)} 字符")
     except Exception as e:
         log.error(f"自动摘要失败: id={file_id}: {e}")
 

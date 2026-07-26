@@ -38,8 +38,15 @@ def _get_model():
     with _lock:
         if _model is not None:
             return _model
-        log.info(f"加载嵌入模型: {EMBEDDING_MODEL} (device=cpu, 后台索引)")
-        _model = SentenceTransformer(EMBEDDING_MODEL, device="cpu")
+        for device in [DEVICE, "cpu"]:
+            try:
+                log.info(f"加载嵌入模型: {EMBEDDING_MODEL} (device={device})")
+                _model = SentenceTransformer(EMBEDDING_MODEL, device=device)
+                log.info(f"模型加载成功: device={device}")
+                return _model
+            except Exception as e:
+                log.warning(f"{device} 加载失败: {e}")
+        raise RuntimeError("无法加载嵌入模型")
     return _model
 
 

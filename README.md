@@ -115,6 +115,22 @@ PRECHA 是一个结构化的章节交接协议，名字取自七个维度的首�
 
 表情包用于 Toast 通知弹窗：成功 → 写完了、信息 → 查到了、错误 → 出错了。
 
+## 系统运行展示
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+
+![首页 Dashboard](frontend/public/系统运行展示/屏幕截图_26-7-2026_15355_localhost.jpeg)
+![创意工坊](frontend/public/系统运行展示/屏幕截图_26-7-2026_155821_localhost.jpeg)
+![资料管理](frontend/public/系统运行展示/屏幕截图_26-7-2026_155842_localhost.jpeg)
+![大纲工坊](frontend/public/系统运行展示/屏幕截图_26-7-2026_16015_localhost.jpeg)
+![写作工坊](frontend/public/系统运行展示/屏幕截图_26-7-2026_1610_localhost.jpeg)
+![改写工坊](frontend/public/系统运行展示/屏幕截图_26-7-2026_16246_localhost.jpeg)
+![文件详情](frontend/public/系统运行展示/屏幕截图_26-7-2026_16335_localhost.jpeg)
+![搜索功能](frontend/public/系统运行展示/屏幕截图_26-7-2026_16426_localhost.jpeg)
+![PRECHA 章节](frontend/public/系统运行展示/屏幕截图_26-7-2026_16437_localhost.jpeg)
+
+</div>
+
 ## 技术栈
 
 | 层 | 技术 |
