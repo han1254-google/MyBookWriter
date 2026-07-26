@@ -5,9 +5,9 @@ import sys
 import os
 
 # 确保项目根在 path 中
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+MYBOOKAPPS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if MYBOOKAPPS_ROOT not in sys.path:
+    sys.path.insert(0, MYBOOKAPPS_ROOT)
 
 from knowledge_rag.query import KnowledgeRetriever
 from app_config import RAG_TOP_K, RAG_THRESHOLD

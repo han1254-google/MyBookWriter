@@ -1,0 +1,262 @@
+"""
+向量知识库查询接口
+支持命令行查询和 Python API 两种使用方式。
+
+命令行用法：
+  python query.py "潮汐锁定对气候的影响"              # 基本查询
+  python query.py "硅基生命" --top-k 10                # 指定返回数量
+  python query.py "法律法规 出版" --category 法律法规    # 按分类过滤
+  python query.py "星球生态" --threshold 0.5            # 调整相似度阈值
+
+Python API 用法：
+  from query import KnowledgeRetriever
+  retriever = KnowledgeRetriever()
+  results = retriever.query("潮汐锁定的行星有什么特点？")
+  context = retriever.query_as_context("硅基生命")  # 返回拼接好的上下文字符串
+"""
+import os
+import sys
+import argparse
+from typing import List, Dict, Optional
+
+# 修复 Windows GBK 终端 emoji 编码问题
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+# 确保 config 在 sentence_transformers 之前导入（设置 HF_ENDPOINT 等环境变量）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from config import (
+    CHROMA_DB_DIR,
+    EMBEDDING_MODEL,
+    DEVICE,
+    COLLECTION_NAME,
+    DEFAULT_TOP_K,
+    SIMILARITY_THRESHOLD,
+)
+
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+
+class KnowledgeRetriever:
+    """
+    知识库检索器
+    加载一次后可多次查询，适合在写作过程中反复调用。
+    """
+
+    def __init__(self):
+        # 连接 ChromaDB
+        if not os.path.exists(CHROMA_DB_DIR):
+            raise FileNotFoundError(
+                f"向量数据库不存在: {CHROMA_DB_DIR}\n"
+                f"请先运行 python build_index.py 构建索引"
+            )
+        self.client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
+        self.collection = self.client.get_collection(COLLECTION_NAME)
+
+        # 加载嵌入模型
+        self.model = SentenceTransformer(EMBEDDING_MODEL, device=DEVICE)
+
+    @property
+    def total_chunks(self) -> int:
+        """索引中 chunk 的总数"""
+        return self.collection.count()
+
+    @property
+    def categories(self) -> List[str]:
+        """知识库中的所有分类"""
+        result = self.collection.get()
+        cats = set()
+        for meta in result.get("metadatas", []):
+            if meta and "category" in meta:
+                cats.add(meta["category"])
+        return sorted(cats)
+
+    def query(
+        self,
+        query_text: str,
+        top_k: int = DEFAULT_TOP_K,
+        category: Optional[str] = None,
+        threshold: float = SIMILARITY_THRESHOLD,
+    ) -> List[Dict]:
+        """
+        查询知识库。
+
+        Args:
+            query_text: 查询文本
+            top_k: 返回的 chunk 数量
+            category: 可选，按分类过滤（如 "潮汐锁定"）
+            threshold: 相似度阈值，低于此值的结果将被丢弃（范围 0-1）
+
+        Returns:
+            [
+                {
+                    "content": "文本内容...",
+                    "source": "文件路径",
+                    "filename": "文件名",
+                    "category": "分类",
+                    "page": 页码,
+                    "similarity": 0.85,
+                },
+                ...
+            ]
+        """
+        # 生成查询向量
+        query_embedding = self.model.encode([query_text]).tolist()
+
+        # 构建过滤条件
+        where_filter = None
+        if category:
+            where_filter = {"category": category}
+
+        # 检索
+        raw = self.collection.query(
+            query_embeddings=query_embedding,
+            n_results=top_k,
+            where=where_filter,
+            include=["documents", "metadatas", "distances"],
+        )
+
+        # 整理结果
+        results = []
+        if raw["ids"] and raw["ids"][0]:
+            for i, doc_id in enumerate(raw["ids"][0]):
+                distance = raw["distances"][0][i]
+                # cosine distance → similarity
+                similarity = 1 - distance
+                if similarity < threshold:
+                    continue
+
+                metadata = raw["metadatas"][0][i] or {}
+                results.append({
+                    "content": raw["documents"][0][i],
+                    "source": metadata.get("source", ""),
+                    "filename": metadata.get("filename", ""),
+                    "category": metadata.get("category", ""),
+                    "page": metadata.get("page", 0),
+                    "similarity": round(similarity, 4),
+                })
+
+        return results
+
+    def query_as_context(
+        self,
+        query_text: str,
+        top_k: int = DEFAULT_TOP_K,
+        category: Optional[str] = None,
+        threshold: float = SIMILARITY_THRESHOLD,
+        include_source: bool = True,
+    ) -> str:
+        """
+        查询并返回拼接好的上下文字符串，适合直接注入 LLM prompt。
+
+        Args:
+            query_text: 查询文本
+            top_k: 返回数量
+            category: 分类过滤
+            threshold: 相似度阈值
+            include_source: 是否在每段前标注出处
+
+        Returns:
+            格式化的上下文字符串
+        """
+        results = self.query(query_text, top_k=top_k, category=category, threshold=threshold)
+
+        if not results:
+            return "（未在知识库中找到相关内容）"
+
+        parts = []
+        for i, r in enumerate(results, 1):
+            if include_source:
+                header = f"【来源{i}】{r['filename']} (分类: {r['category']}, 第{r['page']}页, 相似度: {r['similarity']})"
+            else:
+                header = f"【资料{i}】"
+            parts.append(f"{header}\n{r['content']}")
+
+        return "\n\n---\n\n".join(parts)
+
+    def list_categories(self) -> None:
+        """打印所有分类及其统计"""
+        cats = self.categories
+        print("\n知识库分类概览:")
+        print("-" * 40)
+        for cat in cats:
+            result = self.collection.get(where={"category": cat})
+            count = len(result["ids"]) if result["ids"] else 0
+            print(f"  📁 {cat}: {count} 个 chunk")
+
+
+# ============================================================
+# 命令行入口
+# ============================================================
+def main():
+    parser = argparse.ArgumentParser(
+        description="科幻写作知识库查询",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python query.py "潮汐锁定对行星气候有什么影响？"
+  python query.py "硅基生命的可能性" --top-k 10
+  python query.py "出版法规" --category 法律法规
+  python query.py --list-categories
+        """
+    )
+    parser.add_argument("query", nargs="?", help="查询文本")
+    parser.add_argument("--top-k", "-k", type=int, default=DEFAULT_TOP_K,
+                        help=f"返回结果数量 (默认: {DEFAULT_TOP_K})")
+    parser.add_argument("--category", "-c", type=str, default=None,
+                        help="按分类过滤")
+    parser.add_argument("--threshold", "-t", type=float, default=SIMILARITY_THRESHOLD,
+                        help=f"相似度阈值 (默认: {SIMILARITY_THRESHOLD})")
+    parser.add_argument("--list-categories", action="store_true",
+                        help="列出所有分类")
+    args = parser.parse_args()
+
+    try:
+        retriever = KnowledgeRetriever()
+    except FileNotFoundError as e:
+        print(f"\n❌ {e}")
+        sys.exit(1)
+
+    if args.list_categories:
+        retriever.list_categories()
+        return
+
+    if not args.query:
+        parser.print_help()
+        return
+
+    # 执行查询
+    print(f"\n🔍 查询: \"{args.query}\"")
+    if args.category:
+        print(f"📁 分类过滤: {args.category}")
+    print("-" * 60)
+
+    results = retriever.query(
+        args.query,
+        top_k=args.top_k,
+        category=args.category,
+        threshold=args.threshold,
+    )
+
+    if not results:
+        print("  (未找到相关内容)")
+        return
+
+    for i, r in enumerate(results, 1):
+        print(f"\n{'─' * 50}")
+        print(f"📄 [{i}] {r['filename']}")
+        print(f"   分类: {r['category']} | 页码: {r['page']} | 相似度: {r['similarity']}")
+        print(f"{'─' * 50}")
+        # 截断过长内容
+        content = r["content"]
+        if len(content) > 600:
+            content = content[:600] + f"\n... (共 {len(r['content'])} 字)"
+        print(content)
+
+    print(f"\n{'=' * 60}")
+    print(f"共找到 {len(results)} 条相关结果")
+
+
+if __name__ == "__main__":
+    main()

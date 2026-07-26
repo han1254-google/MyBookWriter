@@ -20,7 +20,7 @@ DATA_DIR = os.path.join(MYBOOKAPPS_ROOT, "data")
 DB_PATH = os.path.join(DATA_DIR, "mybookapps.db")
 
 # 知识库原始文件目录（用于 RAG 检索）
-KNOWLEDGE_BASE_DIR = os.path.join(PROJECT_ROOT, "知识库")
+KNOWLEDGE_BASE_DIR = os.path.join(MYBOOKAPPS_ROOT, "知识库")
 
 # 确保目录存在
 os.makedirs(DATA_DIR, exist_ok=True)

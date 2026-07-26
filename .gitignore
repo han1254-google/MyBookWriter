@@ -24,5 +24,17 @@ frontend/dist/
 .env
 .env.local
 
+# Embedding model (4.5GB, re-downloadable)
+model/
+
+# Vector database (rebuildable)
+knowledge_rag/chroma_db/
+
+# 知识库源文件（PDF/DOCX 等，本地维护）
+知识库/
+
+# RAG 缓存
+knowledge_rag/.file_fingerprints.json
+
 # Large media (uncomment if needed)
 # imgs/

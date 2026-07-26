@@ -6,7 +6,7 @@ import sys
 import os
 
 # 将项目根添加到 path，以便导入 knowledge_rag
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, send_from_directory
 from app_config import DB_PATH, SECRET_KEY, MAX_CONTENT_LENGTH, UPLOAD_FOLDER, MYBOOKAPPS_ROOT
