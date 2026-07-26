@@ -93,6 +93,7 @@ export const writingApi = {
   saveChapter: (data: { outline_id: number; chapter_number: number; title: string; content: string; status: string }) =>
     request<{ success: boolean }>('/writing/save', { method: 'POST', body: JSON.stringify(data) }),
   getChapters: (outlineId: number) => request<Array<Record<string, unknown>>>(`/writing/chapters/${outlineId}`),
+  deleteChapter: (chapterId: number) => request<{ success: boolean }>(`/writing/chapter/${chapterId}`, { method: 'DELETE' }),
   exportBook: (outlineId: number) => request<{ full_text: string; title: string }>(`/writing/export/${outlineId}`, { method: 'POST' }),
 };
 

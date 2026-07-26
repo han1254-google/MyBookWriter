@@ -328,6 +328,18 @@ def get_chapters(outline_id):
     return jsonify([c.to_dict() for c in chapters])
 
 
+@api_writing_bp.route("/writing/chapter/<int:chapter_id>", methods=["DELETE"])
+def delete_chapter(chapter_id):
+    """删除章节"""
+    chapter = Chapter.query.get_or_404(chapter_id)
+    outline_id = chapter.outline_id
+    cn = chapter.chapter_number
+    log.info(f"删除章节: id={chapter_id}, outline_id={outline_id}, ch{cn}")
+    db.session.delete(chapter)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
 @api_writing_bp.route("/writing/export/<int:outline_id>", methods=["POST"])
 def export_book(outline_id):
     """导出全书为单一 Markdown"""

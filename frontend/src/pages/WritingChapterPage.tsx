@@ -108,6 +108,17 @@ export default function WritingChapterPage() {
     );
   };
 
+  const handleDelete = async (chapterId: number) => {
+    if (!confirm(`确定删除 CHA${cn} 吗？此操作不可恢复。`)) return;
+    try {
+      await writingApi.deleteChapter(chapterId);
+      addToast('章节已删除', 'success');
+      loadData();
+    } catch (e: unknown) {
+      addToast(`删除失败: ${(e as Error).message}`, 'error');
+    }
+  };
+
   const handleExport = async () => {
     try {
       const result = await writingApi.exportBook(oid);
@@ -145,18 +156,24 @@ export default function WritingChapterPage() {
         <div>
           <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase mb-2">章节列表</h3>
           {chapters.map((ch: Record<string, unknown>) => (
-            <Link
-              key={ch.chapter_number as number}
-              to={`/writing/${oid}/${ch.chapter_number}`}
-              className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded no-underline transition-colors ${
-                ch.chapter_number === cn
-                  ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${ch.status === 'completed' ? 'bg-[var(--success)]' : 'bg-[var(--warning)]'}`} />
-              CHA{ch.chapter_number} {ch.title as string}
-            </Link>
+            <div key={ch.chapter_number as number} className="flex items-center gap-1">
+              <Link
+                to={`/writing/${oid}/${ch.chapter_number}`}
+                className={`flex-1 flex items-center gap-2 text-xs py-1.5 px-2 rounded no-underline transition-colors ${
+                  ch.chapter_number === cn
+                    ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${ch.status === 'completed' ? 'bg-[var(--success)]' : 'bg-[var(--warning)]'}`} />
+                CHA{ch.chapter_number} {ch.title as string}
+              </Link>
+              <button
+                onClick={() => handleDelete(ch.id as number)}
+                className="text-[var(--text-muted)] hover:text-[var(--danger)] bg-none border-none cursor-pointer text-xs px-1"
+                title="删除此章"
+              >🗑</button>
+            </div>
           ))}
           {!chapters.find((c: Record<string, unknown>) => c.chapter_number === cn) && (
             <div className="text-xs text-[var(--text-muted)] px-2 py-1.5">CHA{cn} 待写作</div>
