@@ -45,5 +45,8 @@ libraries/
 # 数据库文件（本地数据）
 data/
 
+# 导出产物
+output/
+
 # Large media (uncomment if needed)
 # imgs/

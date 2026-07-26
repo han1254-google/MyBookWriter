@@ -341,8 +341,8 @@ def delete_chapter(chapter_id):
 
 
 @api_writing_bp.route("/writing/export/<int:outline_id>", methods=["POST"])
-def export_book(outline_id):
-    """导出全书为单一 Markdown"""
+def export_book_md(outline_id):
+    """导出全书为单一 Markdown 文本"""
     outline = Outline.query.get_or_404(outline_id)
     chapters = Chapter.query.filter_by(
         outline_id=outline_id, status="completed"
@@ -369,3 +369,26 @@ def export_book(outline_id):
         "full_text": full_book,
         "chapter_count": len(chapters),
     })
+
+
+@api_writing_bp.route("/writing/export/<int:outline_id>/<fmt>", methods=["POST"])
+def export_book_file(outline_id, fmt):
+    """导出电子书文件（epub / pdf）"""
+    if fmt not in ("epub", "pdf"):
+        return jsonify({"error": "格式不支持，请使用 epub 或 pdf"}), 400
+
+    from scripts.export_book import export_book as _export
+    try:
+        import threading
+        result = _export(outline_id, fmt)
+        if not result or fmt not in result:
+            return jsonify({"error": "导出失败，请检查 pandoc 是否安装"}), 500
+
+        file_path = result[fmt]
+        from flask import send_file
+        fname = os.path.basename(file_path)
+        log.info(f"导出{fmt}: outline_id={outline_id}, file={fname}")
+        return send_file(file_path, as_attachment=True, download_name=fname)
+    except Exception as e:
+        log.error(f"导出{fmt}失败: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500

@@ -273,7 +273,7 @@ export default function WritingChapterPage() {
               <h2 className="text-lg font-bold">📦 导出全书</h2>
               <button onClick={() => setShowExport(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-none border-none text-xl cursor-pointer">✕</button>
             </div>
-            <div className="flex gap-3 mb-4">
+            <div className="flex gap-3 mb-4 flex-wrap">
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(exportText);
@@ -295,6 +295,42 @@ export default function WritingChapterPage() {
               >
                 💾 下载 MD
               </button>
+              <a
+                href={`/api/writing/export/${oid}/epub`}
+                onClick={(e) => { e.preventDefault();
+                  fetch(`/api/writing/export/${oid}/epub`, { method: 'POST' })
+                    .then(r => r.blob())
+                    .then(blob => {
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = `${outline?.title || 'book'}.epub`;
+                      a.click(); URL.revokeObjectURL(url);
+                      addToast('EPUB 导出完成', 'success');
+                    })
+                    .catch(() => addToast('EPUB 导出失败', 'error'));
+                }}
+                className="px-4 py-2 bg-[var(--success)] text-white border-none rounded-lg text-sm no-underline cursor-pointer hover:opacity-90"
+              >
+                📖 下载 EPUB
+              </a>
+              <a
+                href={`/api/writing/export/${oid}/pdf`}
+                onClick={(e) => { e.preventDefault();
+                  fetch(`/api/writing/export/${oid}/pdf`, { method: 'POST' })
+                    .then(r => r.blob())
+                    .then(blob => {
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = `${outline?.title || 'book'}.pdf`;
+                      a.click(); URL.revokeObjectURL(url);
+                      addToast('PDF 导出完成', 'success');
+                    })
+                    .catch(() => addToast('PDF 导出失败', 'error'));
+                }}
+                className="px-4 py-2 bg-[var(--danger)] text-white border-none rounded-lg text-sm no-underline cursor-pointer hover:opacity-90"
+              >
+                📕 下载 PDF
+              </a>
             </div>
             <pre className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap font-mono bg-[var(--bg-tertiary)] p-4 rounded-lg max-h-[50vh] overflow-auto">
               {exportText}
