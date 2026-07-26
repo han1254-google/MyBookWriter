@@ -18,13 +18,10 @@ log = get_logger("api.upload")
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".epub"}
 
 
-def _auto_summarize(file_id):
-    """后台生成AI摘要（不阻塞上传响应）"""
-    from flask import current_app
+def _auto_summarize(app, file_id):
+    """后台生成AI摘要，需要传入 Flask app 实例"""
     from services.deepseek_service import deepseek_flash
     try:
-        # 后台线程需要独立的 app context
-        app = current_app._get_current_object()
         with app.app_context():
             lib_file = LibraryFile.query.get(file_id)
             if not lib_file or not lib_file.content_preview or lib_file.ai_summary:
@@ -102,17 +99,18 @@ def upload_file():
         db.session.commit()
         log.info(f"数据库记录已创建: id={lib_file.id}, type={library_type}, folder={folder_name}")
 
-        # 自动写入向量数据库 + 生成AI摘要（后台线程，不阻塞响应）
+        # 自动写入向量数据库 + 生成AI摘要（后台线程）
         import threading
+        from flask import current_app
+        app_ref = current_app._get_current_object()
         threading.Thread(
             target=index_file,
             args=(stored_path, library_type, folder_name),
             daemon=True,
         ).start()
-        # 后台生成AI摘要
         threading.Thread(
             target=_auto_summarize,
-            args=(lib_file.id,),
+            args=(app_ref, lib_file.id),
             daemon=True,
         ).start()
 

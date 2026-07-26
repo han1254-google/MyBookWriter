@@ -127,8 +127,18 @@ def _extract_text(file_path):
         return [{"page": 1, "text": text}] if text else []
 
     elif ext == ".txt" or ext == ".md":
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
+        return [{"page": 1, "text": text}] if text.strip() else []
+
+    elif ext == ".epub":
+        from ebooklib import epub
+        from bs4 import BeautifulSoup
+        book = epub.read_epub(file_path)
+        text = ""
+        for item in book.get_items_of_type(9):
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            text += soup.get_text() + "\n"
         return [{"page": 1, "text": text}] if text.strip() else []
 
     return []
