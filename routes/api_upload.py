@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from database import db, LibraryFile
 from services.library_service import classify_file, save_file, list_libraries, delete_file, extract_style
 from services.file_service import extract_text
+from services.index_service import index_file, remove_file_index
 from logger import get_logger
 
 api_upload_bp = Blueprint("api_upload", __name__)
@@ -79,6 +80,14 @@ def upload_file():
         db.session.commit()
         log.info(f"数据库记录已创建: id={lib_file.id}, type={library_type}, folder={folder_name}")
 
+        # 自动写入向量数据库（后台线程，不阻塞响应）
+        import threading
+        threading.Thread(
+            target=index_file,
+            args=(stored_path, library_type, folder_name),
+            daemon=True,
+        ).start()
+
         return jsonify({
             "success": True,
             "id": lib_file.id,
@@ -124,6 +133,9 @@ def delete_library_file(file_id):
     lib_file = LibraryFile.query.get_or_404(file_id)
     log.info(f"删除文件: id={file_id}, path={lib_file.stored_path}")
     if os.path.exists(lib_file.stored_path):
+        # 从向量数据库移除
+        remove_file_index(lib_file.stored_path)
+        # 删物理文件
         delete_file(lib_file.stored_path)
     db.session.delete(lib_file)
     db.session.commit()
