@@ -115,6 +115,7 @@ class LibraryFile(db.Model):
     file_type = db.Column(db.String(20), default="")       # pdf/docx/txt/epub
     style_analysis = db.Column(db.Text, default="")        # 风格库：AI 提取的风格特征
     content_preview = db.Column(db.Text, default="")       # 文本预览（前2000字，用于RAG和检索）
+    ai_summary = db.Column(db.Text, default="")            # AI 生成的文件摘要（用于快速浏览）
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
@@ -127,5 +128,6 @@ class LibraryFile(db.Model):
             "file_type": self.file_type,
             "style_analysis": self.style_analysis,
             "content_preview": self.content_preview[:200] if self.content_preview else "",
+            "ai_summary": self.ai_summary,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

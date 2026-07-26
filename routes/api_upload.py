@@ -18,6 +18,24 @@ log = get_logger("api.upload")
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".epub"}
 
 
+def _auto_summarize(file_id):
+    """后台生成AI摘要（不阻塞上传响应）"""
+    from services.deepseek_service import deepseek_flash
+    try:
+        lib_file = LibraryFile.query.get(file_id)
+        if not lib_file or not lib_file.content_preview or lib_file.ai_summary:
+            return
+        prompt = f"""请用3-5句话总结以下文档的核心内容，用中文，简洁直接。
+文件名：{lib_file.original_filename}
+内容：{lib_file.content_preview[:3000]}"""
+        summary = deepseek_flash.chat(prompt, max_tokens=500)
+        lib_file.ai_summary = summary.strip()
+        db.session.commit()
+        log.info(f"自动摘要完成: id={file_id}, {len(summary)} 字符")
+    except Exception as e:
+        log.error(f"自动摘要失败: id={file_id}: {e}")
+
+
 @api_upload_bp.route("/upload", methods=["POST"])
 def upload_file():
     """上传文件并自动分类"""
@@ -80,11 +98,17 @@ def upload_file():
         db.session.commit()
         log.info(f"数据库记录已创建: id={lib_file.id}, type={library_type}, folder={folder_name}")
 
-        # 自动写入向量数据库（后台线程，不阻塞响应）
+        # 自动写入向量数据库 + 生成AI摘要（后台线程，不阻塞响应）
         import threading
         threading.Thread(
             target=index_file,
             args=(stored_path, library_type, folder_name),
+            daemon=True,
+        ).start()
+        # 后台生成AI摘要
+        threading.Thread(
+            target=_auto_summarize,
+            args=(lib_file.id,),
             daemon=True,
         ).start()
 
@@ -133,10 +157,75 @@ def delete_library_file(file_id):
     lib_file = LibraryFile.query.get_or_404(file_id)
     log.info(f"删除文件: id={file_id}, path={lib_file.stored_path}")
     if os.path.exists(lib_file.stored_path):
-        # 从向量数据库移除
         remove_file_index(lib_file.stored_path)
-        # 删物理文件
         delete_file(lib_file.stored_path)
     db.session.delete(lib_file)
     db.session.commit()
     return jsonify({"success": True})
+
+
+@api_upload_bp.route("/libraries/<int:file_id>/summarize", methods=["POST"])
+def summarize_file(file_id):
+    """AI 生成文件摘要"""
+    lib_file = LibraryFile.query.get_or_404(file_id)
+    if lib_file.ai_summary:
+        return jsonify({"success": True, "summary": lib_file.ai_summary, "cached": True})
+
+    if not lib_file.content_preview:
+        return jsonify({"error": "无法提取文件内容"}), 400
+
+    log.info(f"生成摘要: id={file_id}, file={lib_file.original_filename}")
+    from services.deepseek_service import deepseek_flash
+
+    prompt = f"""请用 3-5 句话总结以下文档的核心内容。用中文。简洁、直接。
+
+文件名：{lib_file.original_filename}
+内容预览：
+{lib_file.content_preview[:3000]}
+
+格式：直接写摘要，不要"本文"之类的开头。"""
+
+    try:
+        summary = deepseek_flash.chat(prompt, max_tokens=500)
+        lib_file.ai_summary = summary.strip()
+        db.session.commit()
+        log.info(f"摘要生成完成: id={file_id}, {len(summary)} 字符")
+        return jsonify({"success": True, "summary": lib_file.ai_summary, "cached": False})
+    except Exception as e:
+        log.error(f"摘要生成失败: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@api_upload_bp.route("/libraries/search", methods=["GET"])
+def search_files():
+    """搜索文件（按文件名和内容预览）"""
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+
+    # SQLite LIKE 搜索（中英文通用）
+    pattern = f"%{q}%"
+    results = LibraryFile.query.filter(
+        (LibraryFile.original_filename.like(pattern)) |
+        (LibraryFile.content_preview.like(pattern)) |
+        (LibraryFile.ai_summary.like(pattern))
+    ).order_by(LibraryFile.created_at.desc()).limit(30).all()
+
+    log.debug(f"搜索: q={q} -> {len(results)} 条")
+    return jsonify([f.to_dict() for f in results])
+
+
+@api_upload_bp.route("/libraries/<int:file_id>/download", methods=["GET"])
+def download_file(file_id):
+    """下载原始文件"""
+    lib_file = LibraryFile.query.get_or_404(file_id)
+    if not os.path.exists(lib_file.stored_path):
+        return jsonify({"error": "文件不存在"}), 404
+
+    from flask import send_file
+    log.info(f"下载文件: id={file_id}, file={lib_file.original_filename}")
+    return send_file(
+        lib_file.stored_path,
+        as_attachment=True,
+        download_name=lib_file.original_filename,
+    )

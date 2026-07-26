@@ -5,6 +5,7 @@
 import os
 import sys
 import hashlib
+import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge_rag"))
 from config import (
@@ -24,7 +25,7 @@ from logger import get_logger
 
 log = get_logger("service.index")
 
-# 懒加载全局实例
+_lock = threading.Lock()
 _model = None
 _client = None
 _collection = None
@@ -32,9 +33,13 @@ _collection = None
 
 def _get_model():
     global _model
-    if _model is None:
-        log.info(f"加载嵌入模型: {EMBEDDING_MODEL}")
-        _model = SentenceTransformer(EMBEDDING_MODEL, device=DEVICE)
+    if _model is not None:
+        return _model
+    with _lock:
+        if _model is not None:
+            return _model
+        log.info(f"加载嵌入模型: {EMBEDDING_MODEL} (device=cpu, 后台索引)")
+        _model = SentenceTransformer(EMBEDDING_MODEL, device="cpu")
     return _model
 
 

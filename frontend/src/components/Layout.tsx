@@ -41,7 +41,7 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 text-sm no-underline transition-colors ${
                   isActive
-                    ? 'bg-[var(--accent)] bg-opacity-15 text-[var(--accent)] border-r-2 border-[var(--accent)]'
+                    ? 'bg-[var(--accent)]/15 text-[var(--accent)] border-r-2 border-[var(--accent)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                 }`
               }
