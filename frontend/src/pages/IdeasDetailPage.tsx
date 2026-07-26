@@ -18,6 +18,7 @@ export default function IdeasDetailPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
+  const [sources, setSources] = useState<Record<string, Array<Record<string, unknown>>>>({ knowledge: [], reference: [], style: [] });
 
   useEffect(() => {
     ideasApi.get(Number(id)).then((data) => {
@@ -26,6 +27,10 @@ export default function IdeasDetailPage() {
         const history = JSON.parse(data.chat_history as string || '[]');
         setMessages(history);
       } catch { /* empty */ }
+      try {
+        const ctx = JSON.parse(data.knowledge_context as string || '{}');
+        setSources(ctx.knowledge ? ctx : { knowledge: ctx as unknown as Array<Record<string, unknown>> || [], reference: [], style: [] });
+      } catch { setSources({ knowledge: [], reference: [], style: [] }); }
     }).catch(() => navigate('/ideas'));
   }, [id, navigate]);
 
@@ -71,6 +76,39 @@ export default function IdeasDetailPage() {
         <p className="text-xs text-[var(--text-muted)] mb-6">
           {new Date(idea.updated_at as string).toLocaleString('zh-CN')}
         </p>
+
+        {/* Reference sources */}
+        {(sources.knowledge.length > 0 || sources.reference.length > 0 || sources.style.length > 0) && (
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 mb-6">
+            <h3 className="text-sm font-semibold mb-2">🔍 生成来源</h3>
+            <div className="flex flex-wrap gap-3">
+              {sources.knowledge.length > 0 && (
+                <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
+                  <span>📚 知识库</span>
+                  {sources.knowledge.map((r, i) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">{r.filename as string}</span>
+                  ))}
+                </div>
+              )}
+              {sources.reference.length > 0 && (
+                <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
+                  <span>📖 参考库</span>
+                  {sources.reference.map((r, i) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">{r.filename as string}</span>
+                  ))}
+                </div>
+              )}
+              {sources.style.length > 0 && (
+                <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
+                  <span>🎨 风格库</span>
+                  {sources.style.map((r, i) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">{r.filename as string}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {editing ? (
           <div>

@@ -135,13 +135,6 @@ class KnowledgeRetriever:
                     "similarity": round(similarity, 4),
                 })
 
-        # 兼容：如果 library_type 过滤无结果，可能是旧索引没标签，退回全库检索
-        if not results and library_type:
-            return self.query(
-                query_text, top_k=top_k,
-                library_type=None, category=category, threshold=threshold
-            )
-
         return results
 
     def query_as_context(

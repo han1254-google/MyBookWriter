@@ -42,5 +42,8 @@ logs/
 # 用户上传的资料文件
 libraries/
 
+# 数据库文件（本地数据）
+data/
+
 # Large media (uncomment if needed)
 # imgs/

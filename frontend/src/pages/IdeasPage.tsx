@@ -11,7 +11,7 @@ export default function IdeasPage() {
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [fullText, setFullText] = useState('');
-  const [ragResults, setRagResults] = useState<Array<Record<string, unknown>>>([]);
+  const [ragResults, setRagResults] = useState<Record<string, Array<Record<string, unknown>>>>({ knowledge: [], reference: [], style: [] });
   const [showDone, setShowDone] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -23,7 +23,7 @@ export default function IdeasPage() {
     if (!prompt.trim() || isStreaming) return;
     setStreamingText('');
     setFullText('');
-    setRagResults([]);
+    setRagResults({ knowledge: [], reference: [], style: [] });
     setIsStreaming(true);
 
     abortRef.current = ideasApi.generate(
@@ -33,7 +33,7 @@ export default function IdeasPage() {
       (data) => {
         setIsStreaming(false);
         if (data?.full_text) setFullText(data.full_text as string);
-        if (data?.rag_results) setRagResults(data.rag_results as Array<Record<string, unknown>>);
+        if (data?.rag_results) setRagResults(data.rag_results as Record<string, Array<Record<string, unknown>>>);
         setShowDone(true);
         setTimeout(() => setShowDone(false), 5000);
       },
@@ -45,7 +45,7 @@ export default function IdeasPage() {
     const titleMatch = fullText.match(/##\s*设定标题\s*\n(.+)/) || fullText.match(/^#\s*(.+)/m);
     const title = titleMatch ? titleMatch[1].trim() : '未命名创意';
     try {
-      await ideasApi.save({ title, content: fullText });
+      await ideasApi.save({ title, content: fullText, knowledge_context: JSON.stringify(ragResults) });
       addToast('创意已保存', 'success');
       ideasApi.list().then(setIdeas);
     } catch (e: unknown) {
@@ -108,18 +108,27 @@ export default function IdeasPage() {
             </div>
           )}
 
-          {/* RAG results */}
-          {ragResults.length > 0 && (
-            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-              <h3 className="text-sm font-semibold mb-3">📚 知识库参考</h3>
-              <div className="space-y-2 max-h-[300px] overflow-auto">
-                {ragResults.map((r: Record<string, unknown>, i: number) => (
-                  <div key={i} className="text-xs text-[var(--text-secondary)] p-2 rounded bg-[var(--bg-tertiary)]">
-                    <div className="font-medium text-[var(--text-primary)]">{r.filename as string}</div>
-                    <div>分类: {r.category as string} · 相似度: {r.similarity as number}</div>
+          {/* RAG results — three libraries */}
+          {(ragResults.knowledge.length > 0 || ragResults.reference.length > 0 || ragResults.style.length > 0) && (
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold">🔍 检索参考来源</h3>
+              {[
+                { key: 'knowledge' as const, label: '📚 知识库', desc: '科学事实依据' },
+                { key: 'reference' as const, label: '📖 参考库', desc: '叙事参考' },
+                { key: 'style' as const, label: '🎨 风格库', desc: '风格启发' },
+              ].map(({ key, label, desc }) => ragResults[key].length > 0 && (
+                <div key={key}>
+                  <div className="text-xs font-medium text-[var(--text-secondary)] mb-1">{label} · {desc} ({ragResults[key].length}条)</div>
+                  <div className="space-y-1 max-h-[120px] overflow-auto">
+                    {ragResults[key].map((r: Record<string, unknown>, i: number) => (
+                      <div key={i} className="text-xs text-[var(--text-secondary)] p-1.5 rounded bg-[var(--bg-tertiary)] flex items-center gap-2">
+                        <span className="text-[var(--text-primary)] truncate flex-1">{r.filename as string}</span>
+                        <span className="text-[var(--text-muted)] shrink-0">{r.similarity as number}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
