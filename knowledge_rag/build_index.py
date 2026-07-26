@@ -76,6 +76,22 @@ def extract_text_from_docx(docx_path: str) -> List[Dict[str, object]]:
 # ============================================================
 # TXT 文本提取
 # ============================================================
+def extract_text_from_epub(epub_path: str) -> List[Dict[str, object]]:
+    """从 EPUB 中提取文本"""
+    try:
+        from ebooklib import epub
+        from bs4 import BeautifulSoup
+        book = epub.read_epub(epub_path)
+        text = ""
+        for item in book.get_items_of_type(9):  # ITEM_DOCUMENT
+            soup = BeautifulSoup(item.get_content(), "html.parser")
+            text += soup.get_text() + "\n"
+        return [{"page": 1, "text": text}] if text.strip() else []
+    except Exception as e:
+        print(f"  [!] 提取失败 [{epub_path}]: {e}")
+    return []
+
+
 def extract_text_from_txt(txt_path: str) -> List[Dict[str, object]]:
     try:
         with open(txt_path, 'r', encoding='utf-8') as f:
@@ -207,7 +223,7 @@ def build_index(full_rebuild: bool = False) -> None:
 
     # ---- 1. 扫描三库文件 ----
     print("\n[1/5] 扫描三库目录...")
-    support_exts = (".pdf", ".docx", ".txt")
+    support_exts = (".pdf", ".docx", ".txt", ".epub", ".md")
     doc_files = []  # [(file_path, library_type, base_dir)]
 
     for base_dir, library_type in SOURCE_DIRS:
@@ -313,8 +329,10 @@ def build_index(full_rebuild: bool = False) -> None:
             pages = extract_text_from_pdf(file_path)
         elif ext == ".docx":
             pages = extract_text_from_docx(file_path)
-        elif ext == ".txt":
+        elif ext in (".txt", ".md"):
             pages = extract_text_from_txt(file_path)
+        elif ext == ".epub":
+            pages = extract_text_from_epub(file_path)
         else:
             continue
         if not pages:
