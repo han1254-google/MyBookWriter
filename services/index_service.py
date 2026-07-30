@@ -198,12 +198,15 @@ def index_file(file_path, library_type, folder_name):
                 for i in range(len(chunks))
             ]
 
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                documents=chunks,
-                metadatas=metadatas,
-            )
+            # 分批写入，避免超过 ChromaDB max batch size
+            BATCH = 4000
+            for i in range(0, len(chunks), BATCH):
+                collection.add(
+                    ids=ids[i:i + BATCH],
+                    embeddings=embeddings[i:i + BATCH],
+                    documents=chunks[i:i + BATCH],
+                    metadatas=metadatas[i:i + BATCH],
+                )
             total_chunks += len(chunks)
 
         # 4. 更新指纹
