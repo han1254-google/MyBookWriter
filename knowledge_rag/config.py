@@ -55,7 +55,7 @@ CHUNK_OVERLAP = 80
 # 检索配置
 # ============================================================
 # 默认返回的 chunk 数量
-DEFAULT_TOP_K = 5
+DEFAULT_TOP_K = 20
 # 相似度阈值（低于此值的结果将被过滤，范围 0-1）
 SIMILARITY_THRESHOLD = 0.3
 

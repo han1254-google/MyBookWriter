@@ -115,7 +115,7 @@ prechaLink {precha_link}
 """
 
 # ---- RAG 配置 ----
-RAG_TOP_K = 5
+RAG_TOP_K = 20
 RAG_THRESHOLD = 0.3
 
 # ---- Flask 配置 ----
