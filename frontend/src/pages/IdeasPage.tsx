@@ -13,7 +13,20 @@ export default function IdeasPage() {
   const [fullText, setFullText] = useState('');
   const [ragResults, setRagResults] = useState<Record<string, Array<Record<string, unknown>>>>({ knowledge: [], reference: [], style: [] });
   const [showDone, setShowDone] = useState(false);
+  const [customTags, setCustomTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('idea_prompt_tags') || '[]'); } catch { return []; }
+  });
+  const [newTag, setNewTag] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+
+  const DEFAULT_TAGS = [
+    '尽量少使用破折号',
+    '加强自嘲式幽默',
+    '用具体数字代替形容词',
+    '第一人称观察者视角',
+    '结尾落在具体画面或动作上',
+    '加入真实品牌和地名',
+  ];
 
   useEffect(() => {
     ideasApi.list().then(setIdeas).catch(() => {});
@@ -71,6 +84,44 @@ export default function IdeasPage() {
       <div className="grid grid-cols-3 gap-6">
         {/* Left: Controls */}
         <div className="col-span-1 space-y-4">
+          {/* Predefined prompt tags */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">预定义提示词（点击追加到输入框）</label>
+            <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-auto">
+              {[...DEFAULT_TAGS, ...customTags].map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setPrompt((p) => (p ? p + '；' + tag : tag))}
+                  className="px-2 py-1 rounded text-xs border border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer transition-colors"
+                >+ {tag}</button>
+              ))}
+            </div>
+            {/* Add custom tag */}
+            <div className="flex gap-1 mt-2">
+              <input
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newTag.trim()) {
+                    const tag = newTag.trim();
+                    const updated = [...customTags, tag];
+                    setCustomTags(updated);
+                    localStorage.setItem('idea_prompt_tags', JSON.stringify(updated));
+                    setNewTag('');
+                  }
+                }}
+                placeholder="自定义提示词..."
+                className="flex-1 bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1 text-xs focus:outline-none focus:border-[var(--accent)]"
+              />
+              {customTags.length > 0 && (
+                <button
+                  onClick={() => { setCustomTags([]); localStorage.removeItem('idea_prompt_tags'); }}
+                  className="px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] bg-none border-none cursor-pointer"
+                  title="清除自定义"
+                >清除自定义</button>
+              )}
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">写作提示</label>
             <textarea
