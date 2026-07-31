@@ -56,12 +56,14 @@ def create_app():
     from routes.api_outlines import api_outlines_bp
     from routes.api_writing import api_writing_bp
     from routes.api_rewrite import api_rewrite_bp
+    from routes.api_storyboard import api_storyboard_bp
 
     app.register_blueprint(api_upload_bp, url_prefix="/api")
     app.register_blueprint(api_ideas_bp, url_prefix="/api")
     app.register_blueprint(api_outlines_bp, url_prefix="/api")
     app.register_blueprint(api_writing_bp, url_prefix="/api")
     app.register_blueprint(api_rewrite_bp, url_prefix="/api")
+    app.register_blueprint(api_storyboard_bp, url_prefix="/api")
 
     # ---- React SPA 静态服务（生产模式）----
     frontend_dist = os.path.join(MYBOOKAPPS_ROOT, "frontend", "dist")

@@ -9,6 +9,7 @@ const navItems = [
   { to: '/outlines', icon: '📋', label: '大纲工坊' },
   { to: '/writing', icon: '✍️', label: '写作工坊' },
   { to: '/rewrite', icon: '🔧', label: '改写工坊' },
+  { to: '/storyboard', icon: '🎬', label: '视觉化' },
 ];
 
 export default function Layout() {

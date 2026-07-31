@@ -9,6 +9,7 @@ import OutlinesDetailPage from './pages/OutlinesDetailPage';
 import WritingPage from './pages/WritingPage';
 import WritingChapterPage from './pages/WritingChapterPage';
 import RewritePage from './pages/RewritePage';
+import StoryboardPage from './pages/StoryboardPage';
 import NotFound from './pages/NotFound';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/writing/:outline_id" element={<WritingChapterPage />} />
         <Route path="/writing/:outline_id/:chapter_num" element={<WritingChapterPage />} />
         <Route path="/rewrite" element={<RewritePage />} />
+        <Route path="/storyboard" element={<StoryboardPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
