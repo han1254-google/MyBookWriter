@@ -83,7 +83,7 @@ def generate_outline():
         try:
             full_text = ""
             for chunk in deepseek.chat_stream(
-                user_msg, system_prompt=system_prompt, max_tokens=4096
+                user_msg, system_prompt=system_prompt, max_tokens=8192
             ):
                 full_text += chunk
                 yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"

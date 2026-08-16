@@ -126,7 +126,10 @@ class DeepSeekService:
                                     yield text
                             elif event.get("type") == "message_stop":
                                 elapsed = (time.time() - t0) * 1000
-                                log.info(f"chat_stream完成: model={self.model}, {total_chars}字符/{chunk_count}块, {elapsed:.0f}ms")
+                                stop_reason = event.get("stop_reason", "")
+                                if stop_reason == "max_tokens":
+                                    log.warning(f"chat_stream被max_tokens截断: model={self.model}, {total_chars}字符, 建议增大max_tokens")
+                                log.info(f"chat_stream完成: model={self.model}, {total_chars}字符/{chunk_count}块, {elapsed:.0f}ms, stop_reason={stop_reason}")
                                 return
                         except json.JSONDecodeError:
                             continue
