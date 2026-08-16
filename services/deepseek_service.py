@@ -31,8 +31,14 @@ class DeepSeekService:
         if system_prompt:
             body["system"] = system_prompt
 
-        last_msg = messages[-1]["content"][:60] if messages else ""
-        log.debug(f"API请求: model={self.model}, max_tokens={max_tokens}, stream={stream}, prompt={last_msg}...")
+        log.debug(
+            f"API请求: model={self.model}, max_tokens={max_tokens}, stream={stream}, "
+            f"messages={len(messages)}条, system={len(system_prompt)}字\n"
+            f"--- SYSTEM PROMPT ---\n{system_prompt}\n"
+            f"--- MESSAGES ---\n"
+            + "\n".join(f"[{m['role']}]{m['content']}" for m in messages)
+            + "\n--- END ---"
+        )
         t0 = time.time()
 
         data = json.dumps(body).encode("utf-8")
