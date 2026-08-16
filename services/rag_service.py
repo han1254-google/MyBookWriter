@@ -47,27 +47,50 @@ class RAGService:
             return []
         return self.retriever.categories
 
-    def search(self, query, top_k=RAG_TOP_K, category=None, threshold=RAG_THRESHOLD):
+    @property
+    def files(self):
+        """所有已索引文件列表 [{source, filename, library_type, category, chunks}]"""
+        if not self.is_available:
+            return []
+        result = self.retriever.collection.get(include=["metadatas"])
+        file_map = {}
+        for meta in result.get("metadatas", []):
+            if not meta or not meta.get("source"):
+                continue
+            key = meta["source"]
+            if key not in file_map:
+                file_map[key] = {
+                    "source": key,
+                    "filename": meta.get("filename", ""),
+                    "library_type": meta.get("library_type", ""),
+                    "category": meta.get("category", ""),
+                    "chunks": 0,
+                }
+            file_map[key]["chunks"] += 1
+        files = sorted(file_map.values(), key=lambda f: f["library_type"])
+        return files
+
+    def search(self, query, top_k=RAG_TOP_K, category=None, sources=None, threshold=RAG_THRESHOLD):
         """检索知识库，返回格式化上下文字符串。"""
         if not self.is_available:
             return "（知识库不可用，请先构建索引：python knowledge_rag/build_index.py）"
 
         t0 = time.time()
         result = self.retriever.query_as_context(
-            query, top_k=top_k, category=category, threshold=threshold
+            query, top_k=top_k, category=category, sources=sources, threshold=threshold
         )
         elapsed = (time.time() - t0) * 1000
-        log.debug(f"RAG检索: query={query[:40]}..., category={category}, top_k={top_k}, {elapsed:.0f}ms")
+        log.debug(f"RAG检索: query={query[:40]}..., category={category}, files={len(sources) if sources else 'all'}, top_k={top_k}, {elapsed:.0f}ms")
         return result
 
-    def search_structured(self, query, top_k=RAG_TOP_K, category=None, threshold=RAG_THRESHOLD):
+    def search_structured(self, query, top_k=RAG_TOP_K, category=None, sources=None, threshold=RAG_THRESHOLD):
         """检索全库，返回结构化列表。"""
         if not self.is_available:
             return []
 
         t0 = time.time()
         results = self.retriever.query(
-            query, top_k=top_k, category=category, threshold=threshold
+            query, top_k=top_k, category=category, sources=sources, threshold=threshold
         )
         elapsed = (time.time() - t0) * 1000
         log.debug(f"RAG检索(structured): query={query[:40]}..., {len(results)}条结果, {elapsed:.0f}ms")
@@ -95,8 +118,8 @@ class RAGService:
             query, top_k=top_k, library_type="风格库", threshold=threshold
         )
 
-    def search_all(self, query, top_k=RAG_TOP_K, threshold=RAG_THRESHOLD):
-        """检索全部三库，返回结构化结果"""
+    def search_all(self, query, top_k=RAG_TOP_K, sources=None, threshold=RAG_THRESHOLD):
+        """检索全部三库（可限定具体文件），返回结构化结果"""
         if not self.is_available:
             return {"knowledge": [], "reference": [], "style": []}
 
@@ -104,7 +127,8 @@ class RAGService:
         for lib_type in ["知识库", "参考库", "风格库"]:
             t0 = time.time()
             items = self.retriever.query(
-                query, top_k=top_k, library_type=lib_type, threshold=threshold
+                query, top_k=top_k, library_type=lib_type,
+                sources=sources, threshold=threshold
             )
             elapsed = (time.time() - t0) * 1000
             log.debug(f"  {lib_type}检索: {len(items)}条, {elapsed:.0f}ms")

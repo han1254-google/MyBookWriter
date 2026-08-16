@@ -4,10 +4,20 @@ import { ideasApi } from '../api/client';
 import { useAppStore } from '../store/appStore';
 import StreamOutput from '../components/StreamOutput';
 
+interface RagFile {
+  source: string;
+  filename: string;
+  library_type: string;
+  category: string;
+  chunks: number;
+}
+
 export default function IdeasPage() {
-  const { ideas, setIdeas, ragCategories, addToast } = useAppStore();
+  const { ideas, setIdeas, addToast } = useAppStore();
   const [prompt, setPrompt] = useState('');
-  const [category, setCategory] = useState('');
+  const [ragFiles, setRagFiles] = useState<RagFile[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [showFilePicker, setShowFilePicker] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [fullText, setFullText] = useState('');
@@ -30,7 +40,18 @@ export default function IdeasPage() {
 
   useEffect(() => {
     ideasApi.list().then(setIdeas).catch(() => {});
+    fetch('/api/rag/files').then(r => r.json()).then(d => setRagFiles(d as RagFile[])).catch(() => {});
   }, [setIdeas]);
+
+  const toggleFile = (source: string) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source); else next.add(source);
+      return next;
+    });
+  };
+
+  const selectedFileNames = ragFiles.filter(f => selectedFiles.has(f.source)).map(f => f.filename);
 
   const handleGenerate = () => {
     if (!prompt.trim() || isStreaming) return;
@@ -39,9 +60,11 @@ export default function IdeasPage() {
     setRagResults({ knowledge: [], reference: [], style: [] });
     setIsStreaming(true);
 
+    const files = selectedFiles.size > 0 ? Array.from(selectedFiles) : null;
     abortRef.current = ideasApi.generate(
       prompt.trim(),
-      category || null,
+      null,
+      files,
       (text) => setStreamingText((prev) => prev + text),
       (data) => {
         setIsStreaming(false);
@@ -133,15 +156,51 @@ export default function IdeasPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">知识库分类过滤（可选）</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-[var(--accent)]"
-            >
-              <option value="">全部知识库</option>
-              {ragCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-[var(--text-secondary)]">指定文件检索（可选）</label>
+              <button
+                onClick={() => setShowFilePicker((v) => !v)}
+                className="text-xs text-[var(--accent)] bg-none border-none cursor-pointer hover:underline"
+              >
+                {showFilePicker ? '收起' : `选择文件 (${selectedFiles.size})`}
+              </button>
+            </div>
+            {selectedFileNames.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2 max-h-[60px] overflow-auto">
+                {selectedFileNames.map((name) => (
+                  <span key={name} className="px-2 py-0.5 rounded text-xs bg-[var(--accent)]/15 text-[var(--accent)] truncate max-w-[140px]">{name}</span>
+                ))}
+              </div>
+            )}
+            {showFilePicker && (
+              <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-2 max-h-[240px] overflow-auto">
+                {ragFiles.length === 0 && (
+                  <p className="text-xs text-[var(--text-muted)] p-2">向量库为空，请先在资料管理上传文件</p>
+                )}
+                {(['知识库', '参考库', '风格库'] as const).map((lib) => {
+                  const libFiles = ragFiles.filter((f) => f.library_type === lib);
+                  if (libFiles.length === 0) return null;
+                  return (
+                    <div key={lib} className="mb-2">
+                      <div className="text-xs font-medium text-[var(--text-muted)] mb-1 px-1">
+                        {{ '知识库': '📚', '参考库': '📖', '风格库': '🎨' }[lib]} {lib} ({libFiles.length})
+                      </div>
+                      {libFiles.map((f) => (
+                        <label key={f.source} className="flex items-center gap-2 px-1 py-1 rounded cursor-pointer hover:bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)]">
+                          <input
+                            type="checkbox"
+                            checked={selectedFiles.has(f.source)}
+                            onChange={() => toggleFile(f.source)}
+                          />
+                          <span className="truncate flex-1" title={f.source}>{f.filename}</span>
+                          <span className="text-[var(--text-muted)] shrink-0">{f.chunks}块</span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <button
             onClick={handleGenerate}

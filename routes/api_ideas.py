@@ -14,6 +14,14 @@ api_ideas_bp = Blueprint("api_ideas", __name__)
 log = get_logger("api.ideas")
 
 
+@api_ideas_bp.route("/rag/files", methods=["GET"])
+def get_rag_files():
+    """列出向量库中所有已索引的文件（按三库分组）"""
+    files = rag.files
+    log.debug(f"RAG文件列表: {len(files)} 个")
+    return jsonify(files)
+
+
 def _format_rag_context(results, label):
     """将 RAG 搜索结果格式化为提示词上下文"""
     if not results:
@@ -32,11 +40,16 @@ def generate_idea():
     if not user_prompt:
         return jsonify({"error": "请输入提示词"}), 400
 
-    log.info(f"生成创意: prompt={user_prompt[:80]}...")
+    # 用户选定的文件（source 路径列表），空 = 全库检索
+    files = data.get("files") or None
+    if files and not isinstance(files, list):
+        files = None
+
+    log.info(f"生成创意: prompt={user_prompt[:80]}..., files={len(files) if files else '全库'}")
 
     # ---- 三库联合检索 ----
     if rag.is_available:
-        all_results = rag.search_all(user_prompt)
+        all_results = rag.search_all(user_prompt, sources=files)
         knowledge_results = all_results.get("knowledge", [])
         reference_results = all_results.get("reference", [])
         style_results = all_results.get("style", [])

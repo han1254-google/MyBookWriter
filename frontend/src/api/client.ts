@@ -58,8 +58,8 @@ export function streamRequest(
 
 // ---- Ideas ----
 export const ideasApi = {
-  generate: (prompt: string, category: string | null, onChunk: ChunkFn, onDone: DoneFn, onError: ErrorFn) =>
-    streamRequest('/ideas/generate', { prompt, category }, onChunk, onDone, onError),
+  generate: (prompt: string, category: string | null, files: string[] | null, onChunk: ChunkFn, onDone: DoneFn, onError: ErrorFn) =>
+    streamRequest('/ideas/generate', { prompt, category, files }, onChunk, onDone, onError),
   chat: (ideaId: number, message: string, onChunk: ChunkFn, onDone: DoneFn, onError: ErrorFn) =>
     streamRequest(`/ideas/chat/${ideaId}`, { message }, onChunk, onDone, onError),
   save: (data: { title: string; content: string; knowledge_context?: string; chat_history?: string }) =>

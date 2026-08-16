@@ -78,16 +78,18 @@ class KnowledgeRetriever:
         top_k: int = DEFAULT_TOP_K,
         library_type: Optional[str] = None,
         category: Optional[str] = None,
+        sources: Optional[List[str]] = None,
         threshold: float = SIMILARITY_THRESHOLD,
     ) -> List[Dict]:
         """
-        查询知识库，支持按 library_type 和 category 过滤。
+        查询知识库，支持按 library_type / category / 具体文件过滤。
 
         Args:
             query_text: 查询文本
             top_k: 返回的 chunk 数量
             library_type: 库类型过滤（"知识库"/"参考库"/"风格库"），None=全库
             category: 分类过滤（如 "潮汐锁定"）
+            sources: 文件路径列表过滤（只在这些文件里检索）
             threshold: 相似度阈值
 
         Returns:
@@ -102,6 +104,8 @@ class KnowledgeRetriever:
             conditions.append({"library_type": library_type})
         if category:
             conditions.append({"category": category})
+        if sources:
+            conditions.append({"source": {"$in": list(sources)}})
 
         if len(conditions) == 1:
             where_filter = conditions[0]
@@ -143,13 +147,15 @@ class KnowledgeRetriever:
         top_k: int = DEFAULT_TOP_K,
         library_type: Optional[str] = None,
         category: Optional[str] = None,
+        sources: Optional[List[str]] = None,
         threshold: float = SIMILARITY_THRESHOLD,
         include_source: bool = True,
     ) -> str:
         """查询并返回拼接好的上下文字符串"""
         results = self.query(
             query_text, top_k=top_k,
-            library_type=library_type, category=category, threshold=threshold
+            library_type=library_type, category=category,
+            sources=sources, threshold=threshold
         )
         if not results:
             lib_label = f"「{library_type}」" if library_type else "知识库"
