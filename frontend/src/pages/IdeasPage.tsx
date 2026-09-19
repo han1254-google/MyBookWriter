@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ideasApi } from '../api/client';
+import { ideasApi, uploadApi } from '../api/client';
 import { useAppStore } from '../store/appStore';
 import StreamOutput from '../components/StreamOutput';
 
@@ -12,6 +12,27 @@ interface RagFile {
   chunks: number;
 }
 
+interface Citation {
+  filename: string;
+  category: string;
+  library_type: string;
+  similarity: number;
+  matched_queries?: number;
+}
+
+type RagResults = { knowledge: Citation[]; reference: Citation[]; style: Citation[] };
+
+const EMPTY_RAG: RagResults = { knowledge: [], reference: [], style: [] };
+
+const DEFAULT_TAGS = [
+  '尽量少使用破折号',
+  '加强自嘲式幽默',
+  '用具体数字代替形容词',
+  '第一人称观察者视角',
+  '结尾落在具体画面或动作上',
+  '加入真实品牌和地名',
+];
+
 export default function IdeasPage() {
   const { ideas, setIdeas, addToast } = useAppStore();
   const [prompt, setPrompt] = useState('');
@@ -21,26 +42,19 @@ export default function IdeasPage() {
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [fullText, setFullText] = useState('');
-  const [ragResults, setRagResults] = useState<Record<string, Array<Record<string, unknown>>>>({ knowledge: [], reference: [], style: [] });
-  const [showDone, setShowDone] = useState(false);
+  const [ragResults, setRagResults] = useState<RagResults>(EMPTY_RAG);
+  const [subQueries, setSubQueries] = useState<string[]>([]);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [structure, setStructure] = useState<Record<string, unknown> | null>(null);
   const [customTags, setCustomTags] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('idea_prompt_tags') || '[]'); } catch { return []; }
   });
   const [newTag, setNewTag] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
-  const DEFAULT_TAGS = [
-    '尽量少使用破折号',
-    '加强自嘲式幽默',
-    '用具体数字代替形容词',
-    '第一人称观察者视角',
-    '结尾落在具体画面或动作上',
-    '加入真实品牌和地名',
-  ];
-
   useEffect(() => {
     ideasApi.list().then(setIdeas).catch(() => {});
-    fetch('/api/rag/files').then(r => r.json()).then(d => setRagFiles(d as RagFile[])).catch(() => {});
+    uploadApi.ragFiles().then(setRagFiles).catch(() => {});
   }, [setIdeas]);
 
   const toggleFile = (source: string) => {
@@ -51,100 +65,115 @@ export default function IdeasPage() {
     });
   };
 
-  const selectedFileNames = ragFiles.filter(f => selectedFiles.has(f.source)).map(f => f.filename);
+  const selectedFileNames = ragFiles.filter((f) => selectedFiles.has(f.source)).map((f) => f.filename);
 
   const handleGenerate = () => {
     if (!prompt.trim() || isStreaming) return;
     setStreamingText('');
     setFullText('');
-    setRagResults({ knowledge: [], reference: [], style: [] });
+    setStructure(null);
+    setSubQueries([]);
+    setRagResults(EMPTY_RAG);
+    setStatusMsg('正在拆解检索查询…');
     setIsStreaming(true);
 
     const files = selectedFiles.size > 0 ? Array.from(selectedFiles) : null;
     abortRef.current = ideasApi.generate(
-      prompt.trim(),
-      null,
-      files,
-      (text) => setStreamingText((prev) => prev + text),
+      prompt.trim(), files,
+      (text) => setStreamingText((p) => p + text),
       (data) => {
         setIsStreaming(false);
+        setStatusMsg('');
         if (data?.full_text) setFullText(data.full_text as string);
-        if (data?.rag_results) setRagResults(data.rag_results as Record<string, Array<Record<string, unknown>>>);
-        setShowDone(true);
-        setTimeout(() => setShowDone(false), 5000);
+        if (data?.rag_results) setRagResults(data.rag_results as unknown as RagResults);
+        if (data?.structure) setStructure(data.structure as Record<string, unknown>);
       },
-      (err) => { setIsStreaming(false); addToast(`生成失败: ${err}`, 'error'); },
+      (err) => { setIsStreaming(false); setStatusMsg(''); addToast(`生成失败: ${err}`, 'error'); },
+      (type, data) => {
+        if (type === 'plan') {
+          setSubQueries((data.queries as string[]) || []);
+          setStatusMsg('正在检索三库…');
+        } else if (type === 'status') {
+          setStatusMsg(String(data.content || ''));
+        }
+      },
     );
   };
 
   const handleSave = async () => {
-    const titleMatch = fullText.match(/##\s*设定标题\s*\n(.+)/) || fullText.match(/^#\s*(.+)/m);
-    const title = titleMatch ? titleMatch[1].trim() : '未命名创意';
     try {
-      await ideasApi.save({ title, content: fullText, knowledge_context: JSON.stringify(ragResults) });
-      addToast('创意已保存', 'success');
+      const r = await ideasApi.save({
+        content: fullText,
+        structure: structure || undefined,
+        knowledge_context: ragResults,
+      });
+      const n = r.idea.entities?.length ?? 0;
+      addToast(`创意已保存${n ? `，拆出 ${n} 条人物/世界观` : ''}`, 'success');
       ideasApi.list().then(setIdeas);
-    } catch (e: unknown) {
+    } catch (e) {
       addToast(`保存失败: ${(e as Error).message}`, 'error');
     }
   };
 
   const handleDelete = async (id: number) => {
+    if (!confirm('确定删除这个创意？')) return;
     try {
       await ideasApi.delete(id);
       addToast('已删除', 'success');
       ideasApi.list().then(setIdeas);
-    } catch (e: unknown) {
+    } catch (e) {
       addToast(`删除失败: ${(e as Error).message}`, 'error');
     }
   };
 
+  const entityPreview = (structure?.entities as Array<Record<string, unknown>>) || [];
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">💡 创意工坊</h1>
-      <p className="text-[var(--text-secondary)] mb-6">RAG 知识库检索 + DeepSeek AI 辅助科幻创意生成</p>
+      <p className="text-[var(--text-secondary)] mb-6">
+        提示词会先被拆成多条正交的检索子查询，再按来源配额取样，避免被单本书带偏
+      </p>
 
       <div className="grid grid-cols-3 gap-6">
-        {/* Left: Controls */}
+        {/* 左：控制区 */}
         <div className="col-span-1 space-y-4">
-          {/* Predefined prompt tags */}
           <div>
-            <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">预定义提示词（点击追加到输入框）</label>
+            <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">
+              预定义提示词（点击追加到输入框）
+            </label>
             <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-auto">
               {[...DEFAULT_TAGS, ...customTags].map((tag) => (
-                <button
-                  key={tag}
+                <button key={tag}
                   onClick={() => setPrompt((p) => (p ? p + '；' + tag : tag))}
                   className="px-2 py-1 rounded text-xs border border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer transition-colors"
                 >+ {tag}</button>
               ))}
             </div>
-            {/* Add custom tag */}
             <div className="flex gap-1 mt-2">
               <input
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newTag.trim()) {
-                    const tag = newTag.trim();
-                    const updated = [...customTags, tag];
+                    const updated = [...customTags, newTag.trim()];
                     setCustomTags(updated);
                     localStorage.setItem('idea_prompt_tags', JSON.stringify(updated));
                     setNewTag('');
                   }
                 }}
-                placeholder="自定义提示词..."
+                placeholder="自定义提示词…"
                 className="flex-1 bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1 text-xs focus:outline-none focus:border-[var(--accent)]"
               />
               {customTags.length > 0 && (
                 <button
                   onClick={() => { setCustomTags([]); localStorage.removeItem('idea_prompt_tags'); }}
                   className="px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] bg-none border-none cursor-pointer"
-                  title="清除自定义"
                 >清除自定义</button>
               )}
             </div>
           </div>
+
           <div>
             <label className="block text-sm font-medium mb-2 text-[var(--text-secondary)]">写作提示</label>
             <textarea
@@ -155,6 +184,7 @@ export default function IdeasPage() {
               className="w-full bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-[var(--text-secondary)]">指定文件检索（可选）</label>
@@ -183,16 +213,12 @@ export default function IdeasPage() {
                   return (
                     <div key={lib} className="mb-2">
                       <div className="text-xs font-medium text-[var(--text-muted)] mb-1 px-1">
-                        {{ '知识库': '📚', '参考库': '📖', '风格库': '🎨' }[lib]} {lib} ({libFiles.length})
+                        {{ 知识库: '📚', 参考库: '📖', 风格库: '🎨' }[lib]} {lib} ({libFiles.length})
                       </div>
                       {libFiles.map((f) => (
                         <label key={f.source} className="flex items-center gap-2 px-1 py-1 rounded cursor-pointer hover:bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)]">
-                          <input
-                            type="checkbox"
-                            checked={selectedFiles.has(f.source)}
-                            onChange={() => toggleFile(f.source)}
-                          />
-                          <span className="truncate flex-1" title={f.source}>{f.filename}</span>
+                          <input type="checkbox" checked={selectedFiles.has(f.source)} onChange={() => toggleFile(f.source)} />
+                          <span className="truncate flex-1" title={`${f.category} / ${f.source}`}>{f.filename}</span>
                           <span className="text-[var(--text-muted)] shrink-0">{f.chunks}块</span>
                         </label>
                       ))}
@@ -202,62 +228,101 @@ export default function IdeasPage() {
               </div>
             )}
           </div>
+
           <button
             onClick={handleGenerate}
             disabled={isStreaming || !prompt.trim()}
             className="w-full py-3 bg-[var(--accent)] text-white border-none rounded-lg text-sm font-medium cursor-pointer hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isStreaming ? '⏳ 生成中...' : '🚀 生成创意'}
+            {isStreaming ? '⏳ 生成中…' : '🚀 生成创意'}
           </button>
 
-          {/* RAG searching indicator */}
-          {isStreaming && !streamingText && (
+          {statusMsg && (
             <div className="flex items-center gap-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-3">
-              <img src="/搜索中.png" alt="搜索中" className="w-12 h-12 object-contain" />
-              <span className="text-xs text-[var(--text-muted)]">正在检索知识库...</span>
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse shrink-0" />
+              <span className="text-xs text-[var(--text-muted)]">{statusMsg}</span>
             </div>
           )}
 
-          {/* RAG results — three libraries */}
+          {/* 检索子查询 —— 让你看清它到底去查了什么 */}
+          {subQueries.length > 0 && (
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-2">🎯 检索子查询</h3>
+              <ul className="text-xs text-[var(--text-secondary)] space-y-1 pl-4 m-0">
+                {subQueries.map((q, i) => <li key={i}>{q}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* 检索命中 */}
           {(ragResults.knowledge.length > 0 || ragResults.reference.length > 0 || ragResults.style.length > 0) && (
             <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 space-y-3">
-              <h3 className="text-sm font-semibold">🔍 检索参考来源</h3>
-              {[
-                { key: 'knowledge' as const, label: '📚 知识库', desc: '科学事实依据' },
-                { key: 'reference' as const, label: '📖 参考库', desc: '叙事参考' },
-                { key: 'style' as const, label: '🎨 风格库', desc: '风格启发' },
-              ].map(({ key, label, desc }) => ragResults[key].length > 0 && (
-                <div key={key}>
-                  <div className="text-xs font-medium text-[var(--text-secondary)] mb-1">{label} · {desc} ({ragResults[key].length}条)</div>
-                  <div className="space-y-1 max-h-[120px] overflow-auto">
-                    {ragResults[key].map((r: Record<string, unknown>, i: number) => (
-                      <div key={i} className="text-xs text-[var(--text-secondary)] p-1.5 rounded bg-[var(--bg-tertiary)] flex items-center gap-2">
-                        <span className="text-[var(--text-primary)] truncate flex-1">{r.filename as string}</span>
-                        <span className="text-[var(--text-muted)] shrink-0">{r.similarity as number}</span>
-                      </div>
-                    ))}
+              <h3 className="text-sm font-semibold">🔍 检索命中</h3>
+              {([
+                { key: 'knowledge', label: '📚 知识库', desc: '科学事实依据' },
+                { key: 'reference', label: '📖 参考库', desc: '叙事参考' },
+                { key: 'style', label: '🎨 风格库', desc: '风格启发' },
+              ] as const).map(({ key, label, desc }) => {
+                const hits = ragResults[key];
+                if (hits.length === 0) return null;
+                const files = new Set(hits.map((h) => h.filename)).size;
+                return (
+                  <div key={key}>
+                    <div className="text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {label} · {desc}（{hits.length} 条 / {files} 个文件）
+                    </div>
+                    <div className="space-y-1 max-h-[140px] overflow-auto">
+                      {hits.map((r, i) => (
+                        <div key={i} className="text-xs text-[var(--text-secondary)] p-1.5 rounded bg-[var(--bg-tertiary)] flex items-center gap-2">
+                          <span className="text-[var(--text-primary)] truncate flex-1" title={r.category}>{r.filename}</span>
+                          <span className="text-[var(--text-muted)] shrink-0">{r.similarity}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Right: Output */}
+        {/* 右：输出 */}
         <div className="col-span-2">
           <StreamOutput text={streamingText} isStreaming={isStreaming} className="min-h-[500px]" emptyImage="/空状态.png" loadingImage="/加载中.png" />
+
+          {structure && (
+            <div className="mt-4 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-2">
+                🧩 结构化结果
+                {structure.structured_ok
+                  ? <span className="ml-2 text-xs text-[var(--success)]">解析完整</span>
+                  : <span className="ml-2 text-xs text-[var(--warning)]">解析不完整，保存后可在详情页重试</span>}
+              </h3>
+              <div className="flex flex-wrap gap-1.5">
+                {entityPreview.map((e, i) => (
+                  <span key={i} className="px-2 py-0.5 rounded text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                    {e.kind === 'character' ? '👤' : e.kind === 'worldview' ? '🌍' : '⚙️'} {String(e.name)}
+                  </span>
+                ))}
+                {entityPreview.length === 0 && (
+                  <span className="text-xs text-[var(--text-muted)]">没拆出条目</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {fullText && !isStreaming && (
             <div className="mt-4 flex gap-3 items-center">
-              <button onClick={handleSave} className="px-6 py-2 bg-[var(--success)] text-white border-none rounded-lg text-sm font-medium cursor-pointer hover:opacity-90 transition-opacity">
+              <button onClick={handleSave}
+                className="px-6 py-2 bg-[var(--success)] text-white border-none rounded-lg text-sm font-medium cursor-pointer hover:opacity-90 transition-opacity">
                 💾 保存到数据库
               </button>
-              {showDone && <img src="/创意完成.png" alt="完成" className="w-16 h-16 object-contain animate-bounce" />}
             </div>
           )}
         </div>
       </div>
 
-      {/* Saved ideas */}
+      {/* 已保存的创意 */}
       <div className="mt-10">
         <h2 className="text-lg font-semibold mb-4">已保存的创意</h2>
         {ideas.length === 0 ? (
@@ -266,13 +331,21 @@ export default function IdeasPage() {
           <div className="grid grid-cols-2 gap-4">
             {ideas.map((idea) => (
               <div key={idea.id} className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-colors">
-                <h3 className="font-semibold mb-2">
-                  <Link to={`/ideas/${idea.id}`} className="no-underline text-[var(--text-primary)] hover:text-[var(--accent)]">{idea.title}</Link>
+                <h3 className="font-semibold mb-1">
+                  <Link to={`/ideas/${idea.id}`} className="no-underline text-[var(--text-primary)] hover:text-[var(--accent)]">
+                    {idea.title}
+                  </Link>
                 </h3>
-                <p className="text-sm text-[var(--text-secondary)] line-clamp-3 mb-3">{idea.content.slice(0, 200)}</p>
+                <p className="text-sm text-[var(--text-secondary)] line-clamp-3 mb-3">
+                  {idea.one_liner || idea.content.slice(0, 160)}
+                </p>
                 <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-                  <span>{new Date(idea.updated_at).toLocaleDateString('zh-CN')}</span>
-                  <button onClick={() => handleDelete(idea.id)} className="text-[var(--danger)] hover:underline bg-none border-none cursor-pointer">删除</button>
+                  <span>
+                    {new Date(idea.updated_at).toLocaleDateString('zh-CN')}
+                    {!idea.structured_ok && <span className="ml-2 text-[var(--warning)]">未结构化</span>}
+                  </span>
+                  <button onClick={() => handleDelete(idea.id)}
+                    className="text-[var(--danger)] hover:underline bg-none border-none cursor-pointer">删除</button>
                 </div>
               </div>
             ))}

@@ -14,10 +14,13 @@ log = get_logger("service.deepseek")
 class DeepSeekService:
     """DeepSeek API 客户端（Anthropic 兼容接口）"""
 
-    def __init__(self, model=None):
+    def __init__(self, model=None, thinking=True):
         self.base_url = DEEPSEEK_BASE_URL.rstrip("/")
         self.api_key = DEEPSEEK_API_KEY
         self.model = model or DEEPSEEK_MODEL
+        # 思考与正文共用 max_tokens 预算。抽取类任务（摘要/分类/PRECHA/查询改写）
+        # 不需要思考，开着反而会让思考吃光预算、正文返回空串。
+        self.thinking = thinking
 
     def _make_request(self, messages, system_prompt="", max_tokens=4096, stream=False):
         """发送请求到 DeepSeek Anthropic 兼容端点"""
@@ -28,6 +31,8 @@ class DeepSeekService:
             "messages": messages,
             "stream": stream,
         }
+        if not self.thinking:
+            body["thinking"] = {"type": "disabled"}
         if system_prompt:
             body["system"] = system_prompt
 
@@ -72,12 +77,20 @@ class DeepSeekService:
         try:
             resp = self._make_request(messages, system_prompt, max_tokens, stream=False)
             body = json.loads(resp.read().decode("utf-8"))
+            text = ""
             if "content" in body and isinstance(body["content"], list):
                 text = "".join(block.get("text", "") for block in body["content"])
-                elapsed = (time.time() - t0) * 1000
-                log.info(f"chat完成: model={self.model}, {len(text)} 字符, {elapsed:.0f}ms")
-                return text
-            return ""
+            # 返回空串必须报错，不能返回 "" —— 调用方会把它当成
+            # 「摘要生成成功但内容为空」写进库，问题就永远浮不上来
+            if not text.strip():
+                stop = body.get("stop_reason", "")
+                raise RuntimeError(
+                    f"模型返回空内容 (stop_reason={stop}, "
+                    f"output_tokens={body.get('usage', {}).get('output_tokens', '?')})"
+                )
+            elapsed = (time.time() - t0) * 1000
+            log.info(f"chat完成: model={self.model}, {len(text)} 字符, {elapsed:.0f}ms")
+            return text
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
             log.error(f"chat HTTP错误: model={self.model}, code={e.code}, body={error_body[:200]}")
@@ -143,5 +156,6 @@ class DeepSeekService:
 
 
 # 全局实例
+# flash 专做抽取（摘要/分类/PRECHA/查询改写/实体提取），关掉思考保证正文有输出
 deepseek = DeepSeekService()
-deepseek_flash = DeepSeekService(model=DEEPSEEK_FLASH_MODEL)
+deepseek_flash = DeepSeekService(model=DEEPSEEK_FLASH_MODEL, thinking=False)

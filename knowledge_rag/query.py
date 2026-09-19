@@ -53,6 +53,10 @@ class KnowledgeRetriever:
     def total_chunks(self) -> int:
         return self.collection.count()
 
+    def encode(self, query_text: str) -> List:
+        """把查询文本编码成向量。跨库检索时先调这个，再把结果传给 query()。"""
+        return self.model.encode([query_text]).tolist()
+
     @property
     def categories(self) -> List[str]:
         result = self.collection.get()
@@ -80,6 +84,7 @@ class KnowledgeRetriever:
         category: Optional[str] = None,
         sources: Optional[List[str]] = None,
         threshold: float = SIMILARITY_THRESHOLD,
+        query_embedding: Optional[List] = None,
     ) -> List[Dict]:
         """
         查询知识库，支持按 library_type / category / 具体文件过滤。
@@ -88,14 +93,17 @@ class KnowledgeRetriever:
             query_text: 查询文本
             top_k: 返回的 chunk 数量
             library_type: 库类型过滤（"知识库"/"参考库"/"风格库"），None=全库
-            category: 分类过滤（如 "潮汐锁定"）
+            category: 分类过滤（如 "行星与系外世界"）
             sources: 文件路径列表过滤（只在这些文件里检索）
             threshold: 相似度阈值
+            query_embedding: 预先算好的向量。同一条查询要跨多个库检索时传入，
+                             可省掉重复编码（编码是这里最慢的一步）
 
         Returns:
-            [{content, source, filename, library_type, category, page, similarity}, ...]
+            [{id, content, source, filename, library_type, category, page, similarity}, ...]
         """
-        query_embedding = self.model.encode([query_text]).tolist()
+        if query_embedding is None:
+            query_embedding = self.encode(query_text)
 
         # 构建 ChromaDB where 过滤条件
         where_filter = None
@@ -130,6 +138,7 @@ class KnowledgeRetriever:
                 # 兼容旧索引：无 library_type 的旧数据默认归入"知识库"
                 lt = metadata.get("library_type", "") or "知识库"
                 results.append({
+                    "id": raw["ids"][0][i],
                     "content": raw["documents"][0][i],
                     "source": metadata.get("source", ""),
                     "filename": metadata.get("filename", ""),

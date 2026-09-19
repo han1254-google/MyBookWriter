@@ -1,24 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { uploadApi } from '../api/client';
+import type { LibraryCategory } from '../api/client';
 import { useAppStore } from '../store/appStore';
 
 interface FileInfo {
   id: number;
   library_type: string;
   folder_name: string;
+  category_id: number | null;
   original_filename: string;
   stored_path: string;
   file_type: string;
   style_analysis: string;
   ai_summary: string;
+  summary_status: string;
+  classify_reason: string;
+  char_count: number;
+  page_count: number;
+  chunk_count: number;
   created_at: string;
 }
 
 export default function UploadPage() {
   const { addToast } = useAppStore();
-  const [libraries, setLibraries] = useState<Record<string, Record<string, string[]>>>({});
   const [files, setFiles] = useState<FileInfo[]>([]);
+  const [categories, setCategories] = useState<Record<string, LibraryCategory[]>>({});
   const [activeLib, setActiveLib] = useState('知识库');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [selectedLib, setSelectedLib] = useState('知识库');
   const [uploading, setUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
@@ -30,9 +38,9 @@ export default function UploadPage() {
 
   const loadData = useCallback(() => {
     uploadApi.getLibraries().then((data) => {
-      setLibraries(data.structure);
-      setFiles(data.files as FileInfo[]);
+      setFiles(data.files as unknown as FileInfo[]);
     }).catch(() => {});
+    uploadApi.getCategories().then(setCategories).catch(() => {});
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -41,7 +49,11 @@ export default function UploadPage() {
     setUploading(true);
     try {
       const result = await uploadApi.upload(file, selectedLib);
-      addToast(`${file.name} → ${result.library_type}/${result.folder_name}`, 'success');
+      addToast(
+        `${file.name} → ${result.library_type}/${result.folder_name}`
+        + (result.is_new_category ? '（新建分类）' : ''),
+        'success',
+      );
       setUploadDone(true);
       setTimeout(() => setUploadDone(false), 3000);
       loadData();
@@ -74,19 +86,23 @@ export default function UploadPage() {
 
   const handleSelect = async (f: FileInfo) => {
     setSelectedFile(f);
-    if (!f.ai_summary) {
-      setSummarizing(true);
-      try {
-        const resp = await fetch(`/api/libraries/${f.id}/summarize`, { method: 'POST' });
-        const data = await resp.json();
-        if (data.success) {
-          setSelectedFile({ ...f, ai_summary: data.summary });
-          // Update in list too
-          setFiles((prev) => prev.map((pf) => pf.id === f.id ? { ...pf, ai_summary: data.summary } : pf));
-        }
-      } catch { /* ignore */ }
-      setSummarizing(false);
+    if (!f.ai_summary) await runSummarize(f, false);
+  };
+
+  /** force=true 时重算摘要（旧数据的摘要是拿开头 2000 字生成的，基本是封面页） */
+  const runSummarize = async (f: FileInfo, force: boolean) => {
+    setSummarizing(true);
+    try {
+      const data = await uploadApi.summarize(f.id, force);
+      if (data.success) {
+        setSelectedFile((prev) => (prev?.id === f.id ? { ...prev, ai_summary: data.summary } : prev));
+        setFiles((prev) => prev.map((pf) => (pf.id === f.id ? { ...pf, ai_summary: data.summary } : pf)));
+        if (force) addToast('摘要已基于全文抽样重新生成', 'success');
+      }
+    } catch (e) {
+      addToast(`摘要生成失败: ${(e as Error).message}`, 'error');
     }
+    setSummarizing(false);
   };
 
   const handleSearch = async () => {
@@ -99,7 +115,11 @@ export default function UploadPage() {
   };
 
   const showFiles = searchResults ?? files;
-  const filteredByCurrentLib = showFiles.filter((f) => f.library_type === activeLib);
+  const inCurrentLib = showFiles.filter((f) => f.library_type === activeLib);
+  const filteredByCurrentLib = activeCategory
+    ? inCurrentLib.filter((f) => f.folder_name === activeCategory)
+    : inCurrentLib;
+  const libCategories = categories[activeLib] || [];
 
   const downloadUrl = (id: number) => `/api/libraries/${id}/download`;
 
@@ -165,7 +185,7 @@ export default function UploadPage() {
         {/* Library tabs */}
         <div className="flex gap-2 mb-4">
           {['知识库', '参考库', '风格库'].map((lib) => (
-            <button key={lib} onClick={() => setActiveLib(lib)}
+            <button key={lib} onClick={() => { setActiveLib(lib); setActiveCategory(null); }}
               className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                 activeLib === lib ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)]'
               }`}>
@@ -174,6 +194,31 @@ export default function UploadPage() {
           ))}
           <span className="ml-auto text-xs text-[var(--text-muted)] self-center">{filteredByCurrentLib.length} 个文件</span>
         </div>
+
+        {/* 规范分类筛选 —— 上传时 AI 只能从这个清单里选，不会再每传一个文件就新造一个名字 */}
+        {libCategories.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => setActiveCategory(null)}
+              className={`px-2.5 py-1 rounded text-xs border cursor-pointer transition-colors ${
+                activeCategory === null
+                  ? 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]'
+                  : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)]'
+              }`}>
+              全部 ({inCurrentLib.length})
+            </button>
+            {libCategories.map((c) => (
+              <button key={c.id} onClick={() => setActiveCategory(c.name)}
+                title={c.description}
+                className={`px-2.5 py-1 rounded text-xs border cursor-pointer transition-colors ${
+                  activeCategory === c.name
+                    ? 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)]'
+                } ${!c.file_count ? 'opacity-50' : ''}`}>
+                {c.name} {c.file_count ? `(${c.file_count})` : ''}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* File list */}
         {filteredByCurrentLib.length > 0 ? (
@@ -229,20 +274,43 @@ export default function UploadPage() {
               <div className="flex justify-between"><span>文件夹</span><span className="text-[var(--text-primary)]">{selectedFile.folder_name}</span></div>
               <div className="flex justify-between"><span>格式</span><span className="text-[var(--text-primary)]">{selectedFile.file_type}</span></div>
               <div className="flex justify-between"><span>上传时间</span><span className="text-[var(--text-primary)]">{new Date(selectedFile.created_at).toLocaleDateString('zh-CN')}</span></div>
+              {selectedFile.char_count > 0 && (
+                <div className="flex justify-between"><span>全文字数</span><span className="text-[var(--text-primary)]">{selectedFile.char_count.toLocaleString('zh-CN')}</span></div>
+              )}
+              {selectedFile.chunk_count > 0 && (
+                <div className="flex justify-between"><span>向量块</span><span className="text-[var(--text-primary)]">{selectedFile.chunk_count}</span></div>
+              )}
             </div>
+
+            {/* AI 为什么这样分类 —— 分错了能看出原因 */}
+            {selectedFile.classify_reason && (
+              <div className="mb-4">
+                <h4 className="text-sm font-semibold mb-1.5">🏷 分类理由</h4>
+                <p className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded-lg p-2.5 leading-relaxed m-0">
+                  {selectedFile.classify_reason}
+                </p>
+              </div>
+            )}
 
             {/* AI Summary */}
             <div className="mb-4">
               <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
                 🤖 AI 摘要
-                {!selectedFile.ai_summary && !summarizing && (
-                  <button onClick={() => handleSelect(selectedFile)} className="text-xs text-[var(--accent)] bg-none border-none cursor-pointer hover:underline">生成</button>
+                {!summarizing && (
+                  <button
+                    onClick={() => runSummarize(selectedFile, !!selectedFile.ai_summary)}
+                    title={selectedFile.ai_summary
+                      ? '旧摘要可能只基于开头几页，重算会用全文抽样'
+                      : undefined}
+                    className="text-xs text-[var(--accent)] bg-none border-none cursor-pointer hover:underline">
+                    {selectedFile.ai_summary ? '重新生成' : '生成'}
+                  </button>
                 )}
               </h4>
               {summarizing ? (
                 <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                   <img src="/加载中.png" alt="" className="w-8 h-8 object-contain" />
-                  正在生成摘要...
+                  正在基于全文抽样生成摘要...
                 </div>
               ) : selectedFile.ai_summary ? (
                 <p className="text-sm text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded-lg p-3 leading-relaxed">{selectedFile.ai_summary}</p>

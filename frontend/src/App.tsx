@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import UploadPage from './pages/UploadPage';
@@ -6,8 +6,8 @@ import IdeasPage from './pages/IdeasPage';
 import IdeasDetailPage from './pages/IdeasDetailPage';
 import OutlinesPage from './pages/OutlinesPage';
 import OutlinesDetailPage from './pages/OutlinesDetailPage';
-import WritingPage from './pages/WritingPage';
-import WritingChapterPage from './pages/WritingChapterPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProjectWorkspace from './pages/ProjectWorkspace';
 import RewritePage from './pages/RewritePage';
 import StoryboardPage from './pages/StoryboardPage';
 import NotFound from './pages/NotFound';
@@ -22,9 +22,11 @@ export default function App() {
         <Route path="/ideas/:id" element={<IdeasDetailPage />} />
         <Route path="/outlines" element={<OutlinesPage />} />
         <Route path="/outlines/:id" element={<OutlinesDetailPage />} />
-        <Route path="/writing" element={<WritingPage />} />
-        <Route path="/writing/:outline_id" element={<WritingChapterPage />} />
-        <Route path="/writing/:outline_id/:chapter_num" element={<WritingChapterPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:id" element={<ProjectWorkspace />} />
+        {/* 旧的 /writing/* 链接重定向到作品列表 */}
+        <Route path="/writing" element={<Navigate to="/projects" replace />} />
+        <Route path="/writing/*" element={<Navigate to="/projects" replace />} />
         <Route path="/rewrite" element={<RewritePage />} />
         <Route path="/storyboard" element={<StoryboardPage />} />
         <Route path="*" element={<NotFound />} />

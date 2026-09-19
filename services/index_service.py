@@ -9,6 +9,7 @@ import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge_rag"))
 from config import (
+    fingerprint_key,
     SOURCE_DIRS,
     CHROMA_DB_DIR,
     FINGERPRINT_FILE,
@@ -220,7 +221,7 @@ def index_file(file_path, library_type, folder_name):
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 hasher.update(chunk)
-        fingerprints[file_path] = hasher.hexdigest()
+        fingerprints[fingerprint_key(file_path)] = hasher.hexdigest()
 
         os.makedirs(os.path.dirname(FINGERPRINT_FILE), exist_ok=True)
         with open(FINGERPRINT_FILE, "w", encoding="utf-8") as f:
@@ -245,7 +246,7 @@ def remove_file_index(file_path):
         if os.path.exists(FINGERPRINT_FILE):
             with open(FINGERPRINT_FILE, "r", encoding="utf-8") as f:
                 fingerprints = json.load(f)
-            fingerprints.pop(file_path, None)
+            fingerprints.pop(fingerprint_key(file_path), None)
             with open(FINGERPRINT_FILE, "w", encoding="utf-8") as f:
                 json.dump(fingerprints, f, ensure_ascii=False, indent=2)
 

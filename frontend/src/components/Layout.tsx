@@ -7,7 +7,7 @@ const navItems = [
   { to: '/upload', icon: '📁', label: '资料管理' },
   { to: '/ideas', icon: '💡', label: '创意工坊' },
   { to: '/outlines', icon: '📋', label: '大纲工坊' },
-  { to: '/writing', icon: '✍️', label: '写作工坊' },
+  { to: '/projects', icon: '✍️', label: '创作' },
   { to: '/rewrite', icon: '🔧', label: '改写工坊' },
   { to: '/storyboard', icon: '🎬', label: '视觉化' },
 ];

@@ -26,6 +26,16 @@ CHROMA_DB_DIR = os.path.join(os.path.dirname(__file__), "chroma_db")
 # 文件指纹缓存（用于增量更新检测）
 FINGERPRINT_FILE = os.path.join(os.path.dirname(__file__), ".file_fingerprints.json")
 
+
+def fingerprint_key(file_path):
+    """
+    指纹表的主键。
+
+    数据库里的路径是 "E:\\books\\..."，os.walk 走出来的可能写成 "e:\\books\\..."，
+    直接拿路径当键会让同一本书被认成两个文件 —— 于是每次增量重建都全量重嵌入。
+    """
+    return os.path.normcase(os.path.abspath(file_path))
+
 # ============================================================
 # 嵌入模型配置
 # ============================================================

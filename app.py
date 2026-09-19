@@ -25,10 +25,6 @@ def create_app():
     log.info("  📚 MyBookApps 启动中...")
     log.info("=" * 50)
 
-
-def create_app():
-    app = Flask(__name__, static_folder=None)
-
     # ---- 基础配置 ----
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH}"
@@ -54,6 +50,7 @@ def create_app():
     from routes.api_upload import api_upload_bp
     from routes.api_ideas import api_ideas_bp
     from routes.api_outlines import api_outlines_bp
+    from routes.api_projects import api_projects_bp
     from routes.api_writing import api_writing_bp
     from routes.api_rewrite import api_rewrite_bp
     from routes.api_storyboard import api_storyboard_bp
@@ -61,6 +58,7 @@ def create_app():
     app.register_blueprint(api_upload_bp, url_prefix="/api")
     app.register_blueprint(api_ideas_bp, url_prefix="/api")
     app.register_blueprint(api_outlines_bp, url_prefix="/api")
+    app.register_blueprint(api_projects_bp, url_prefix="/api")
     app.register_blueprint(api_writing_bp, url_prefix="/api")
     app.register_blueprint(api_rewrite_bp, url_prefix="/api")
     app.register_blueprint(api_storyboard_bp, url_prefix="/api")

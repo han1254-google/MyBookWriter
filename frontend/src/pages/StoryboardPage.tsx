@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { ideasApi } from '../api/client';
+import { ideasApi, storyboardApi } from '../api/client';
+import type { Idea } from '../api/client';
 import { useAppStore } from '../store/appStore';
 import StreamOutput from '../components/StreamOutput';
 
@@ -25,7 +26,7 @@ interface SubPos {
 
 export default function StoryboardPage() {
   const { addToast } = useAppStore();
-  const [ideas, setIdeas] = useState<Array<Record<string, unknown>>>([]);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [selectedIdeaId, setSelectedIdeaId] = useState<number | ''>('');
   const [sceneCount, setSceneCount] = useState(5);
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -65,42 +66,29 @@ export default function StoryboardPage() {
       custom_notes: customNotes,
     };
 
-    fetch('/api/storyboard/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(async (resp) => {
-      const reader = resp.body?.getReader();
-      if (!reader) return;
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === 'text') setStreamingText((prev) => prev + data.content);
-            else if (data.type === 'done') {
-              setIsStreaming(false);
-              if (data.scenes) setScenes(data.scenes as Scene[]);
-              if (data.raw_text) setRawText(data.raw_text as string);
-              if (data.scenes) addToast(`${(data.scenes as Scene[]).length} 个分镜已生成`, 'success');
-            } else if (data.type === 'error') {
-              setIsStreaming(false);
-              addToast(`生成失败: ${data.content}`, 'error');
-            }
-          } catch { /* skip */ }
+    abortRef.current = storyboardApi.generate(
+      body,
+      (text) => setStreamingText((prev) => prev + text),
+      (data) => {
+        setIsStreaming(false);
+        if (data?.scenes) {
+          const list = data.scenes as Scene[];
+          setScenes(list);
+          addToast(`${list.length} 个分镜已生成`, 'success');
         }
-      }
-    }).catch(err => {
-      setIsStreaming(false);
-      addToast(`请求失败: ${err.message}`, 'error');
-    });
+        if (data?.raw_text) {
+          setRawText(data.raw_text as string);
+          addToast('分镜 JSON 解析失败，已保留原始输出', 'error');
+        }
+      },
+      (err) => { setIsStreaming(false); addToast(`生成失败: ${err}`, 'error'); },
+    );
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+    setIsStreaming(false);
+    addToast('已停止', 'info');
   };
 
   const handleCopyPrompt = async (text: string) => {
@@ -205,6 +193,14 @@ export default function StoryboardPage() {
           >
             {isStreaming ? '⏳ 生成中...' : '🎬 生成分镜'}
           </button>
+          {isStreaming && (
+            <button
+              onClick={handleStop}
+              className="w-full py-2 bg-[var(--bg-tertiary)] text-[var(--danger)] border border-[var(--border)] rounded-lg text-xs cursor-pointer hover:border-[var(--danger)]"
+            >
+              停止生成
+            </button>
+          )}
         </div>
 
         {/* Right: Output */}
@@ -237,6 +233,20 @@ export default function StoryboardPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : rawText ? (
+            /* JSON 解析失败时的退路：至少让原始输出可见、可复制 */
+            <div className="bg-[var(--bg-secondary)] border border-[var(--warning)] rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-semibold text-[var(--warning)]">
+                  分镜 JSON 解析失败，下面是模型的原始输出
+                </span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(rawText); addToast('已复制', 'success'); }}
+                  className="ml-auto px-2 py-1 bg-[var(--bg-tertiary)] text-[var(--accent)] border border-[var(--border)] rounded text-xs cursor-pointer"
+                >复制</button>
+              </div>
+              <pre className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-3 rounded-lg whitespace-pre-wrap overflow-auto max-h-[560px]">{rawText}</pre>
             </div>
           ) : (
             <StreamOutput text={streamingText} isStreaming={isStreaming} className="min-h-[500px]" emptyImage="/空状态.png" loadingImage="/加载中.png" />

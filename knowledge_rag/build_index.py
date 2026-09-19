@@ -20,9 +20,17 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
+# 文件名里有「・」这类非 GBK 字符时，print 会抛 UnicodeEncodeError。
+# 这个异常会打断整次重建 —— 而重建已经先清空了 collection，
+# 于是索引直接归零。控制台编码必须兜住。
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 确保 config 在 sentence_transformers 之前导入（设置 HF_ENDPOINT 等环境变量）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (
+    fingerprint_key,
     SOURCE_DIRS,
     CHROMA_DB_DIR,
     FINGERPRINT_FILE,
@@ -179,6 +187,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 # 文件指纹管理
 # ============================================================
 def compute_file_fingerprint(filepath: str) -> str:
+    """内容指纹（md5）。键要用 fingerprint_key() 归一化，别直接拿路径当键。"""
     hasher = hashlib.md5()
     with open(filepath, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
@@ -276,38 +285,30 @@ def build_index(full_rebuild: bool = False) -> None:
     to_process = []
     skipped = 0
 
+    # 指纹只算一次，两种模式共用。哈希整本书不便宜，别重复跑。
+    for file_path, library_type, base_dir in doc_files:
+        key = fingerprint_key(file_path)
+        fp = compute_file_fingerprint(file_path)
+        new_fingerprints[key] = fp
+        if full_rebuild or old_fingerprints.get(key) != fp:
+            to_process.append((file_path, library_type, base_dir))
+        else:
+            skipped += 1
+
     if full_rebuild:
-        to_process = doc_files
         print(f"  完全重建模式：将处理所有 {len(doc_files)} 个文件")
     else:
-        for file_path, _, _ in doc_files:
-            fp = compute_file_fingerprint(file_path)
-            new_fingerprints[file_path] = fp
-            if old_fingerprints.get(file_path) != fp:
-                to_process.append((file_path, _, _))
-            else:
-                skipped += 1
+        # 清理已删除文件的旧向量。完全重建时 collection 已清空，不用再做。
+        # 比对用归一化键（大小写不敏感），删除用的是指纹表里那个真实 source 字符串。
+        current = {fingerprint_key(p) for p, _, _ in doc_files}
+        stale = [k for k in old_fingerprints if fingerprint_key(k) not in current]
+        if stale:
+            print(f"  检测到 {len(stale)} 个已删除文件，正在清理旧向量...")
+            for old_path in stale:
+                collection.delete(where={"source": old_path})
+                print(f"    - 已清理: {os.path.basename(old_path)}")
 
-        deleted_files = set(old_fingerprints.keys()) - set(new_fingerprints.keys())
-        if deleted_files:
-            print(f"  检测到 {len(deleted_files)} 个已删除文件，正在清理旧向量...")
-            for del_path in deleted_files:
-                collection.delete(where={"source": del_path})
-                print(f"    - 已清理: {os.path.basename(del_path)}")
-
-        print(f"  新增/修改: {len(to_process)} 篇, 跳过(未变): {skipped} 篇")
-
-    # Recompute to_process with full info
-    if full_rebuild:
-        pass  # already has all info
-    else:
-        # rebuild to_process with library info
-        new_to_process = []
-        for file_path, library_type, base_dir in doc_files:
-            fp = compute_file_fingerprint(file_path)
-            if old_fingerprints.get(file_path) != fp:
-                new_to_process.append((file_path, library_type, base_dir))
-        to_process = new_to_process
+    print(f"  新增/修改: {len(to_process)} 篇, 跳过(未变): {skipped} 篇")
 
     if not to_process:
         print("\n  [OK] 没有需要更新的文件，索引已是最新。")
@@ -321,7 +322,9 @@ def build_index(full_rebuild: bool = False) -> None:
         category, lib_type = get_file_info(file_path, base_dir, library_type)
         fname = os.path.basename(file_path)
 
-        if not full_rebuild and old_fingerprints.get(file_path):
+        # 重 embedding 前先清掉这个文件的旧块，否则同一份文件会留下两套向量。
+        # 键要用 fingerprint_key 归一化过的那把，raw 路径在指纹表里查不到。
+        if not full_rebuild and old_fingerprints.get(fingerprint_key(file_path)):
             collection.delete(where={"source": file_path})
 
         ext = os.path.splitext(file_path)[1].lower()
@@ -362,17 +365,21 @@ def build_index(full_rebuild: bool = False) -> None:
                 for i in range(len(chunks))
             ]
 
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                documents=chunks,
-                metadatas=metadatas,
-            )
+            # 必须分批：ChromaDB 单次 add 上限 5461 条。
+            # 《王树增战争系列》切成 6920 块，一次性塞进去会抛 InternalError，
+            # 而那次异常直接中断了整次重建、把索引留在半空状态。
+            BATCH = 4000
+            for i in range(0, len(chunks), BATCH):
+                collection.add(
+                    ids=ids[i:i + BATCH],
+                    embeddings=embeddings[i:i + BATCH],
+                    documents=chunks[i:i + BATCH],
+                    metadatas=metadatas[i:i + BATCH],
+                )
             total_chunks += len(chunks)
 
-    # 保存指纹
-    all_files = {fp: compute_file_fingerprint(fp) for fp, _, _ in doc_files}
-    save_fingerprints(all_files)
+    # 保存指纹（[4] 已经全部算好，直接用）
+    save_fingerprints(new_fingerprints)
 
     # ---- 完成 ----
     print(f"\n{'=' * 60}")

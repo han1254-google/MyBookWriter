@@ -1,9 +1,12 @@
 """
 电子书导出工具
 用法:
-  python scripts/export_book.py <outline_id>            # 同时导出 EPUB + PDF
-  python scripts/export_book.py <outline_id> epub       # 仅 EPUB
-  python scripts/export_book.py <outline_id> pdf        # 仅 PDF
+  python scripts/export_book.py <project_id>            # 同时导出 EPUB + PDF
+  python scripts/export_book.py <project_id> epub       # 仅 EPUB
+  python scripts/export_book.py <project_id> pdf        # 仅 PDF
+
+按**作品**取章节（「从 IDEA 创建」的作品没有大纲，不能按 outline_id 取）。
+传入大纲 ID 也能用，会自动解析到对应作品。
 """
 import os
 import sys
@@ -14,29 +17,18 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app_config import MYBOOKAPPS_ROOT
-from database import db, Outline, Chapter
+from database import db, Project, Chapter
+from services.precha_service import strip_precha
 from app import create_app
 
 
-def clean_chapter(content):
-    """去掉 PRECHA 元数据，只保留 CONTENT 部分"""
-    m = re.search(r'## CONTENT\s*\n(.+)', content, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    # 如果没有 PRECHA，返回原文
-    m2 = re.search(r'^#.*?\n(.+)', content, re.DOTALL)
-    if m2:
-        return m2.group(1).strip()
-    return content.strip()
-
-
-def build_markdown(outline, chapters):
+def build_markdown(project, chapters):
     """构建不含元数据的干净 Markdown 全书"""
-    lines = []
-    lines.append(f"# {outline.title}\n")
+    lines = [f"# {project.title}\n"]
     for ch in chapters:
-        body = clean_chapter(ch.content)
-        lines.append(f"# {ch.title}\n\n{body}\n")
+        body = strip_precha(ch.content)
+        title = ch.title or f"第{ch.chapter_number}章"
+        lines.append(f"# {title}\n\n{body}\n")
     return "\n\n".join(lines)
 
 
@@ -81,7 +73,7 @@ def export_pdf(md_text, title, output_dir):
 
     # 2. fpdf2 渲染 PDF（带 CJK 字体）
     from fpdf import FPDF
-from fpdf.enums import XPos, YPos
+    from fpdf.enums import XPos, YPos
 
     # 查找系统中文字体
     font_path = None
@@ -136,26 +128,117 @@ from fpdf.enums import XPos, YPos
     return pdf_path
 
 
-def export_book(outline_id, fmt="both"):
-    """主入口"""
+def natural_key(filename):
+    """CHA1 < CHA2 < … < CHA10 < 终章 —— 按数字比，不按字典序"""
+    m = re.search(r"(\d+)", filename)
+    return (int(m.group(1)) if m else 10 ** 9, filename)
+
+
+# 这些不是正文：设定、大纲、创作指南、法条参考
+SKIP_MARKERS = ("IDEA", "OUTLINE", "创作指南", "法条参考")
+
+
+def collect_chapter_files(book_dir):
+    names = []
+    for fn in os.listdir(book_dir):
+        if not fn.lower().endswith(".md") or fn.startswith("_"):
+            continue
+        if any(marker in fn for marker in SKIP_MARKERS):
+            continue
+        names.append(fn)
+    return sorted(names, key=natural_key)
+
+
+def export_from_dir(book_dir, fmt="both"):
+    """
+    按目录导出（write_books/XX 那种手写章节的目录）。
+
+    导出电子书的原始用法，与作品库那条路线并存 —— 不是所有稿子都在数据库里。
+    """
+    if not os.path.isdir(book_dir):
+        print(f"错误：目录不存在 {book_dir}")
+        return None
+
+    files = collect_chapter_files(book_dir)
+    if not files:
+        print(f"错误：{book_dir} 下没有章节 .md")
+        return None
+
+    title = os.path.basename(os.path.normpath(book_dir))
+    lines = [f"# {title}\n"]
+    for fn in files:
+        with open(os.path.join(book_dir, fn), "r", encoding="utf-8") as f:
+            body = strip_precha(f.read())
+        stem = os.path.splitext(fn)[0]
+        lines.append(f"# {stem}\n\n{body}\n")
+
+    output_dir = os.path.join(book_dir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"📖 导出: {title}")
+    print(f"   章节数: {len(files)}")
+    for fn in files:
+        print(f"     - {fn}")
+
+    return _write_formats("\n\n".join(lines), title, output_dir, fmt)
+
+
+def _write_formats(md_text, title, output_dir, fmt):
+    """EPUB / PDF 的落盘，两条导出路线共用"""
+    results = {}
+    if fmt in ("epub", "both"):
+        epub_path = export_epub(md_text, title, output_dir)
+        results["epub"] = epub_path
+        print(f"   EPUB: {epub_path} ({os.path.getsize(epub_path) / 1024:.1f} KB)")
+    if fmt in ("pdf", "both"):
+        pdf_path = export_pdf(md_text, title, output_dir)
+        results["pdf"] = pdf_path
+        print(f"   PDF:  {pdf_path} ({os.path.getsize(pdf_path) / 1024:.1f} KB)")
+    return results
+
+
+def export_book(project_id, fmt="both"):
+    """
+    主入口。按**作品**取章节 ——
+    「从 IDEA 创建」的作品没有大纲，所以不能再按 outline_id 取。
+    传入的 id 若不是作品 id，会尝试当作大纲 id 解析（兼容旧调用）。
+    """
     app = create_app()
     with app.app_context():
-        outline = Outline.query.get(outline_id)
-        if not outline:
-            print(f"错误：大纲 id={outline_id} 不存在")
+        project = db.session.get(Project, project_id)
+        if project is None:
+            # 兼容：传进来的可能是大纲 id
+            project = Project.query.filter_by(outline_id=project_id).first()
+        if project is None:
+            print(f"错误：作品 id={project_id} 不存在")
             return None
 
         chapters = (
             Chapter.query
-            .filter_by(outline_id=outline_id, status="completed")
+            .filter(Chapter.project_id == project.id,
+                    Chapter.status == "completed",
+                    Chapter.content.isnot(None),
+                    Chapter.content != "")
             .order_by(Chapter.chapter_number)
             .all()
         )
         if not chapters:
-            print("错误：没有已完成的章节")
+            # 一章都没定稿时，退回导出所有有正文的，避免导出为空
+            chapters = (
+                Chapter.query
+                .filter(Chapter.project_id == project.id,
+                        Chapter.content.isnot(None),
+                        Chapter.content != "")
+                .order_by(Chapter.chapter_number)
+                .all()
+            )
+            if chapters:
+                print(f"提示：没有已定稿章节，改为导出 {len(chapters)} 个有正文的章节")
+        if not chapters:
+            print("错误：没有任何有正文的章节")
             return None
 
-        raw_title = outline.title or "未命名"
+        raw_title = project.title or "未命名"
         # 清理文件名中的特殊字符（Windows 不允许《》等）
         safe_title = re.sub(r'[\\/*?:"<>|《》]', '', raw_title)
         if not safe_title.strip():
@@ -168,29 +251,21 @@ def export_book(outline_id, fmt="both"):
         print(f"📖 导出: {title}")
         print(f"   章节数: {len(chapters)}")
 
-        md_text = build_markdown(outline, chapters)
-        results = {}
-
-        if fmt in ("epub", "both"):
-            epub_path = export_epub(md_text, title, output_dir)
-            epub_size = os.path.getsize(epub_path) / 1024
-            results["epub"] = epub_path
-            print(f"   EPUB: {epub_path} ({epub_size:.1f} KB)")
-
-        if fmt in ("pdf", "both"):
-            pdf_path = export_pdf(md_text, title, output_dir)
-            pdf_size = os.path.getsize(pdf_path) / 1024
-            results["pdf"] = pdf_path
-            print(f"   PDF:  {pdf_path} ({pdf_size:.1f} KB)")
-
-        return results
+        md_text = build_markdown(project, chapters)
+        return _write_formats(md_text, title, output_dir, fmt)
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="电子书导出工具")
-    parser.add_argument("outline_id", type=int, help="大纲 ID")
+    parser.add_argument("target",
+                        help="作品 ID（也接受大纲 ID），或章节所在目录如 write_books/XX")
     parser.add_argument("format", nargs="?", default="both",
                         choices=["epub", "pdf", "both"])
     args = parser.parse_args()
-    export_book(args.outline_id, args.format)
+
+    # 数字当作品 ID 查库，其余当目录扫 .md —— 「导出 XX」两种都认
+    if str(args.target).strip().isdigit():
+        export_book(int(args.target), args.format)
+    else:
+        export_from_dir(args.target, args.format)

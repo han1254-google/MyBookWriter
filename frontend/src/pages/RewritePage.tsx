@@ -4,10 +4,20 @@ import remarkGfm from 'remark-gfm';
 import { rewriteApi } from '../api/client';
 import { useAppStore } from '../store/appStore';
 
+/** /rewrite/analyze 返回的结构；解析失败时后端会退回 raw_analysis */
+interface Analysis {
+  raw_analysis?: string;
+  scores?: Record<string, number>;
+  strengths?: string[];
+  weaknesses?: string[];
+  suggestions?: string[];
+  overall?: string;
+}
+
 export default function RewritePage() {
   const { addToast } = useAppStore();
   const [originalText, setOriginalText] = useState('');
-  const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [rewrittenText, setRewrittenText] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
@@ -21,7 +31,7 @@ export default function RewritePage() {
     setIsAnalyzing(true);
     try {
       const result = await rewriteApi.analyze(originalText.trim());
-      setAnalysis(result.analysis);
+      setAnalysis(result.analysis as Analysis);
     } catch (e: unknown) {
       addToast(`分析失败: ${(e as Error).message}`, 'error');
     }
@@ -96,13 +106,13 @@ export default function RewritePage() {
               <h3 className="font-semibold mb-3">📊 风格诊断</h3>
               {analysis.raw_analysis ? (
                 <div className="markdown-body text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.raw_analysis as string}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.raw_analysis}</ReactMarkdown>
                 </div>
               ) : (
                 <div className="space-y-3 text-sm">
                   {analysis.scores && (
                     <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(analysis.scores as Record<string, number>).map(([k, v]) => (
+                      {Object.entries(analysis.scores).map(([k, v]) => (
                         <div key={k} className="flex justify-between bg-[var(--bg-tertiary)] rounded-lg px-3 py-2">
                           <span>{k}</span>
                           <span className={`font-bold ${v >= 7 ? 'text-[var(--success)]' : v >= 5 ? 'text-[var(--warning)]' : 'text-[var(--danger)]'}`}>{v}/10</span>
@@ -114,7 +124,7 @@ export default function RewritePage() {
                     <div>
                       <div className="font-medium text-[var(--success)] mb-1">✅ 优点</div>
                       <ul className="list-disc list-inside text-[var(--text-secondary)]">
-                        {(analysis.strengths as string[]).map((s, i) => <li key={i}>{s}</li>)}
+                        {analysis.strengths.map((s, i) => <li key={i}>{s}</li>)}
                       </ul>
                     </div>
                   )}
@@ -122,7 +132,7 @@ export default function RewritePage() {
                     <div>
                       <div className="font-medium text-[var(--danger)] mb-1">⚠️ 问题</div>
                       <ul className="list-disc list-inside text-[var(--text-secondary)]">
-                        {(analysis.weaknesses as string[]).map((w, i) => <li key={i}>{w}</li>)}
+                        {analysis.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
                       </ul>
                     </div>
                   )}
@@ -130,11 +140,11 @@ export default function RewritePage() {
                     <div>
                       <div className="font-medium text-[var(--accent)] mb-1">💡 建议</div>
                       <ul className="list-disc list-inside text-[var(--text-secondary)]">
-                        {(analysis.suggestions as string[]).map((s, i) => <li key={i}>{s}</li>)}
+                        {analysis.suggestions.map((s, i) => <li key={i}>{s}</li>)}
                       </ul>
                     </div>
                   )}
-                  {analysis.overall && <p className="text-[var(--text-primary)] italic">💬 {analysis.overall as string}</p>}
+                  {analysis.overall && <p className="text-[var(--text-primary)] italic">💬 {analysis.overall}</p>}
                 </div>
               )}
             </div>

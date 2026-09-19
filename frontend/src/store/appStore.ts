@@ -1,38 +1,12 @@
 /**
  * Zustand 全局状态
+ *
+ * 实体类型统一从 api/client 引入，避免两处定义漂移。
  */
 import { create } from 'zustand';
+import type { Idea, Outline, Project } from '../api/client';
 
-interface Idea {
-  id: number;
-  title: string;
-  content: string;
-  chat_history: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Outline {
-  id: number;
-  idea_id: number | null;
-  title: string;
-  content: string;
-  chapter_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Chapter {
-  id: number;
-  outline_id: number;
-  chapter_number: number;
-  title: string;
-  content: string;
-  status: string;
-  precha_name: string;
-  precha_link: string;
-  precha_content: string;
-}
+type ToastType = 'success' | 'error' | 'info';
 
 interface AppState {
   // Sidebar
@@ -44,21 +18,22 @@ interface AppState {
   ragCategories: string[];
   setRagInfo: (available: boolean, categories: string[]) => void;
 
-  // Ideas
+  // 缓存的列表
   ideas: Idea[];
   setIdeas: (ideas: Idea[]) => void;
 
-  // Outlines
   outlines: Outline[];
   setOutlines: (outlines: Outline[]) => void;
 
-  // Library
+  projects: Project[];
+  setProjects: (projects: Project[]) => void;
+
   libraries: Record<string, Record<string, string[]>>;
   setLibraries: (libs: Record<string, Record<string, string[]>>) => void;
 
   // Toast
-  toasts: Array<{ id: number; message: string; type: 'success' | 'error' | 'info' }>;
-  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  toasts: Array<{ id: number; message: string; type: ToastType }>;
+  addToast: (message: string, type?: ToastType) => void;
   removeToast: (id: number) => void;
 }
 
@@ -77,6 +52,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   outlines: [],
   setOutlines: (outlines) => set({ outlines }),
+
+  projects: [],
+  setProjects: (projects) => set({ projects }),
 
   libraries: {},
   setLibraries: (libraries) => set({ libraries }),
