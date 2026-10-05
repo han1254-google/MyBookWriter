@@ -478,6 +478,8 @@ REVISION_OP_LABELS = {
     "rewrite": "重写",
     "manual": "手动保存",
     "revert": "回滚",
+    "restore": "载入旧版",
+    "edit": "编辑字段",
 }
 
 
@@ -492,6 +494,9 @@ class Revision(db.Model):
     op = db.Column(db.String(16), default="manual")
     instruction = db.Column(db.Text, default="")     # 用户在命令行输入的修改意见
     content = db.Column(db.Text, default="")
+    # 完整快照（JSON）。创意类版本存结构化字段+人物设定，
+    # 让「每个版本都是完整的」——点开旧版本能还原当时的整页状态。
+    snapshot = db.Column(db.Text, default="")
     char_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=_now)
 
@@ -513,6 +518,11 @@ class Revision(db.Model):
         }
         if with_content:
             d["content"] = self.content or ""
+            if self.snapshot:
+                try:
+                    d["snapshot"] = json.loads(self.snapshot)
+                except json.JSONDecodeError:
+                    pass
         return d
 
     @staticmethod
@@ -524,8 +534,13 @@ class Revision(db.Model):
         return (top.version_no + 1) if top else 1
 
     @classmethod
-    def record(cls, target_type, target_id, content, op="manual", instruction=""):
-        """追加一个版本。调用方负责 commit。"""
+    def record(cls, target_type, target_id, content, op="manual", instruction="",
+               snapshot=None):
+        """追加一个版本。调用方负责 commit。
+
+        snapshot: 该版本的完整快照 dict（结构化字段+实体等），内部转 JSON。
+        不给就只存正文 —— 章节/大纲类版本正文即全部，不需要快照。
+        """
         rev = cls(
             target_type=target_type,
             target_id=target_id,
@@ -533,6 +548,7 @@ class Revision(db.Model):
             op=op,
             instruction=instruction or "",
             content=content or "",
+            snapshot=json.dumps(snapshot, ensure_ascii=False) if snapshot else "",
             char_count=len(content or ""),
         )
         db.session.add(rev)

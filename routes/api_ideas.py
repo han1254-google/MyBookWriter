@@ -210,12 +210,14 @@ def command_idea(idea_id):
                 full_text += chunk
                 yield _sse({"type": "text", "content": chunk})
 
-            # 存版本 + 更新正文 + 重新结构化
-            Revision.record("idea", idea.id, idea.content,
-                            op="rewrite", instruction=instruction)
+            # 先更新正文 + 重新结构化，**再**把改完后的状态存成新版本。
+            # 改前的状态本来就在历史里（上一个版本就是它），不用再存一遍。
             idea.content = full_text
             structure = idea_service.structure_idea(full_text)
             idea_service.apply_structure(idea, structure)
+            Revision.record("idea", idea.id, idea.content,
+                            op="rewrite", instruction=instruction,
+                            snapshot=idea_service.snapshot_idea(idea))
             db.session.commit()
 
             yield _sse({"type": "done", "full_text": full_text,
@@ -260,7 +262,8 @@ def save_idea():
         structure = idea_service.structure_idea(content)
     n_entities = idea_service.apply_structure(idea, structure) if structure else 0
 
-    Revision.record("idea", idea.id, content, op="generate")
+    Revision.record("idea", idea.id, content, op="generate",
+                    snapshot=idea_service.snapshot_idea(idea))
     db.session.commit()
     log.info(f"创意已保存: id={idea.id}, title={title}, 实体{n_entities}条, "
              f"结构化={'成功' if idea.structured_ok else '不完整'}")
@@ -279,18 +282,28 @@ def update_idea(idea_id):
     data = request.get_json() or {}
 
     if "content" in data and data["content"] != idea.content:
-        Revision.record("idea", idea.id, idea.content,
-                        op="manual", instruction="手动编辑")
         idea.content = data["content"]
         # 正文变了，结构化字段跟着重算（除非调用方明确给了）
         if not data.get("skip_restructure"):
             structure = idea_service.structure_idea(idea.content)
             idea_service.apply_structure(idea, structure)
+        # 存改完后的状态（改前的在上一个版本里）
+        Revision.record("idea", idea.id, idea.content,
+                        op="manual", instruction="手动编辑",
+                        snapshot=idea_service.snapshot_idea(idea))
 
+    field_changed = False
     for field in ("title", "one_liner", "core_concept", "worldview",
                   "themes", "opening"):
-        if field in data:
+        if field in data and data[field] != getattr(idea, field):
             setattr(idea, field, data[field])
+            field_changed = True
+
+    # 「每次有变动就叠加一个新版本」：字段编辑也要存版（含改动后的完整快照）
+    if field_changed and not ("content" in data and data["content"] != idea.content):
+        Revision.record("idea", idea.id, idea.content,
+                        op="edit", instruction="编辑结构化字段",
+                        snapshot=idea_service.snapshot_idea(idea))
 
     db.session.commit()
     log.info(f"创意已更新: id={idea_id}, title={idea.title}")
@@ -426,19 +439,69 @@ def list_idea_revisions(idea_id):
     return jsonify([r.to_dict() for r in revs])
 
 
-@api_ideas_bp.route("/ideas/<int:idea_id>/revert/<int:version_no>", methods=["POST"])
-def revert_idea(idea_id, version_no):
+@api_ideas_bp.route("/ideas/<int:idea_id>/revisions/<int:version_no>", methods=["GET"])
+def get_idea_revision(idea_id, version_no):
+    """取某一版的完整内容 —— 列表接口只带元数据，正文按需拉。"""
+    Idea.query.get_or_404(idea_id)
+    rev = Revision.query.filter_by(
+        target_type="idea", target_id=idea_id, version_no=version_no).first()
+    if not rev:
+        return jsonify({"error": f"版本 v{version_no} 不存在"}), 404
+    return jsonify(rev.to_dict(with_content=True))
+
+
+@api_ideas_bp.route("/ideas/<int:idea_id>/load-version/<int:version_no>",
+                   methods=["POST"])
+def load_idea_version(idea_id, version_no):
+    """
+    点击历史版本 → 当前内容切换成那个版本。
+
+    不需要存任何新版本：每次编辑本来就会叠一个版本，当前状态早就在历史里；
+    切过去的目标版本 vN 也已经在历史里。切换只是移动「当前」指针。
+    """
     idea = Idea.query.get_or_404(idea_id)
     rev = Revision.query.filter_by(
         target_type="idea", target_id=idea_id, version_no=version_no).first()
     if not rev:
         return jsonify({"error": f"版本 v{version_no} 不存在"}), 404
 
-    Revision.record("idea", idea.id, idea.content,
-                    op="revert", instruction=f"回滚到 v{version_no}")
-    idea.content = rev.content
-    structure = idea_service.structure_idea(idea.content)
-    idea_service.apply_structure(idea, structure)
+    snap = None
+    if rev.snapshot:
+        try:
+            snap = json.loads(rev.snapshot)
+        except json.JSONDecodeError:
+            pass
+    if not snap:
+        # 老数据兜底：现拆一次
+        snap = idea_service.structure_idea(rev.content or "")
+
+    # 回填：正文 + 结构化字段 + 人物设定
+    idea.content = rev.content or ""
+    for f in ("one_liner", "core_concept", "worldview", "themes", "opening"):
+        setattr(idea, f, snap.get(f, "") or "")
+    idea.sources = json.dumps(snap.get("sources", []) or [], ensure_ascii=False)
+    idea.structured_ok = bool(snap.get("structured_ok"))
+    if snap.get("title"):
+        idea.title = snap["title"]
+
+    StoryEntity.query.filter_by(idea_id=idea.id).delete(synchronize_session=False)
+    for i, e in enumerate(snap.get("entities", []) or []):
+        attrs = e.get("attributes", {})
+        db.session.add(StoryEntity(
+            idea_id=idea.id,
+            kind=e["kind"],
+            name=e.get("name", ""),
+            summary=e.get("summary", ""),
+            detail=e.get("detail", ""),
+            attributes=json.dumps(attrs, ensure_ascii=False)
+                if isinstance(attrs, dict) else (attrs or "{}"),
+            sort_order=e.get("sort_order", i),
+        ))
+
     db.session.commit()
-    log.info(f"创意回滚: id={idea_id} → v{version_no}")
+    log.info(f"创意切换到历史版本: id={idea_id} v{version_no}")
     return jsonify({"success": True, "idea": idea.to_dict(with_entities=True)})
+
+
+# 不做回滚接口：每次改动自动叠加新版本，版本历史只读。
+# 要恢复旧内容就复制出来自己改，避免回滚埋掉后续改动。

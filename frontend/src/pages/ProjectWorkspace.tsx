@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { projectsApi, chaptersApi, entitiesApi, exportApi } from '../api/client';
 import type { Project, Chapter, ChapterSummary, StoryEntity, Revision } from '../api/client';
 import { useAppStore } from '../store/appStore';
+import { useTaskStore } from '../store/taskStore';
 import CommandBar from '../components/CommandBar';
 import EntityGroups from '../components/EntityCards';
 
@@ -45,7 +46,8 @@ export default function ProjectWorkspace() {
   const [entities, setEntities] = useState<StoryEntity[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
 
-  const [panel, setPanel] = useState<Panel>('precha');
+  // 默认不开面板：第一章的 PRECHA 是空的，开着就是个占位的空壳
+  const [panel, setPanel] = useState<Panel>(null);
   const [draftContent, setDraftContent] = useState('');
   const [contentDirty, setContentDirty] = useState(false);
   const [precha, setPrecha] = useState<Partial<Chapter>>({});
@@ -53,11 +55,15 @@ export default function ProjectWorkspace() {
   const [plan, setPlan] = useState<Partial<Chapter>>({});
   const [planDirty, setPlanDirty] = useState(false);
 
-  const [isRunning, setIsRunning] = useState(false);
+  // 本地瞬时状态：新建章节/重新提取 PRECHA/导出这类当前页短操作
   const [status, setStatus] = useState('');
-  const [streamText, setStreamText] = useState('');
-  const abortRef = useRef<AbortController | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  // 生成任务活在全局 store（见 taskStore.ts），切页面不会丢
+  const tasks = useTaskStore((s) => s.tasks);
+  const startTask = useTaskStore((s) => s.startCommand);
+  const stopTask = useTaskStore((s) => s.stopCommand);
+  const clearTask = useTaskStore((s) => s.clearTask);
 
   const selectedId = Number(searchParams.get('chapter')) || null;
 
@@ -88,12 +94,29 @@ export default function ProjectWorkspace() {
       setPrechaDirty(false);
       setPlan(c);
       setPlanDirty(false);
-      setStreamText('');
       if (c.entities) setEntities(c.entities);
     } catch (e) {
       addToast(`加载章节失败: ${(e as Error).message}`, 'error');
     }
   }, [addToast]);
+
+  // 当前章节的任务（存在才谈得上接续）
+  const task = current ? tasks[current.id] : undefined;
+  const taskRunning = task?.status === 'running';
+  // 原始值依赖：流式每来一个分块 task 对象就换一次身份，effect 不能盯着对象本体
+  const taskDone = task?.status === 'done';
+
+  // 任务完成后：后端已经落库，重新拉一遍正文，然后清掉任务记录。
+  // 只处理当前正打开的章节；人在别的页面时任务完成由 store 的全局 toast 通知。
+  useEffect(() => {
+    if (!taskDone) return;
+    // 用 getState 读最新值，避免闭包里的旧对象
+    const t = useTaskStore.getState().tasks[current?.id ?? -1];
+    if (!t) return;
+    loadChapter(t.chapterId);
+    loadProject();
+    clearTask(t.chapterId);
+  }, [taskDone, current?.id, loadChapter, loadProject, clearTask]);
 
   // 选中章节：URL 里指定的，或列表第一个。
   //
@@ -195,6 +218,10 @@ export default function ProjectWorkspace() {
   };
 
   const deleteChapter = async (cid: number, summary: ChapterSummary) => {
+    if (tasks[cid]?.status === 'running') {
+      addToast('这一章正在生成，先停止再删', 'error');
+      return;
+    }
     const warn = summary.has_content
       ? `CHA${summary.chapter_number} 有 ${summary.word_count} 字正文，删除不可恢复。确定？`
       : `确定删除 CHA${summary.chapter_number}？`;
@@ -222,60 +249,16 @@ export default function ProjectWorkspace() {
   };
 
   // ---- 命令行 ----
+  // 只做前置校验，任务本体交给全局 store —— 切页不中断
   const runCommand = (op: string, instruction: string) => {
     if (!current) { addToast('请先选择或新建一个章节', 'error'); return; }
     if (contentDirty && !confirm('正文有未保存的改动，AI 生成会覆盖。继续？')) return;
-
-    setIsRunning(true);
-    setStreamText('');
-    setStatus(op === 'continue' ? '正在续写…' : op === 'rewrite' ? '正在重写…' : '正在生成本章…');
-
-    abortRef.current = chaptersApi.command(
-      current.id, op as 'generate' | 'continue' | 'rewrite', instruction,
-      (t) => setStreamText((p) => p + t),
-      (data) => {
-        setIsRunning(false);
-        setStatus('');
-        const ch = data?.chapter as Chapter | undefined;
-        if (ch) {
-          setCurrent(ch);
-          setDraftContent(ch.content);
-          setContentDirty(false);
-        }
-        setStreamText('');
-        const audit = data?.audit as { ok: boolean; issues: string[] } | undefined;
-        if (audit && !audit.ok) {
-          addToast(`注意：叙述范围自检发现 ${audit.issues.length} 个问题`, 'error');
-        } else {
-          addToast(op === 'continue' ? '续写完成' : op === 'rewrite' ? '重写完成' : '生成完成', 'success');
-        }
-        loadProject();
-        if (panel === 'revisions') loadRevisions();
-      },
-      (err) => {
-        setIsRunning(false);
-        setStatus('');
-        addToast(`失败: ${err}`, 'error');
-      },
-      (type, data) => {
-        if (type === 'context') {
-          const s = data.snapshot as Record<string, unknown>;
-          const hidden = Number(s?.hidden_future_entities ?? 0);
-          setStatus(
-            `已注入 ${s?.entity_count ?? 0} 条设定`
-            + (hidden ? `（屏蔽 ${hidden} 条未来才出场的）` : '')
-            + `，章节计划给到 CHA${s?.plan_upto}，检索命中 ${s?.rag_hits ?? 0} 条`,
-          );
-        }
-      },
-    );
+    startTask(current.id, op as 'generate' | 'continue' | 'rewrite', instruction);
   };
 
   const stopCommand = () => {
-    abortRef.current?.abort();
-    setIsRunning(false);
-    setStatus('');
-    addToast('已停止', 'info');
+    if (!current) return;
+    stopTask(current.id);
   };
 
   // ---- 版本 ----
@@ -346,6 +329,17 @@ export default function ProjectWorkspace() {
   if (!project) return <div className="p-6 text-[var(--text-muted)]">加载中…</div>;
 
   const hasContent = !!(current?.content || '').trim();
+
+  // 状态行：本章任务 > 别的章在跑 > 本地操作
+  const otherRunning = Object.values(tasks).find(
+    (t) => t.status === 'running' && t.chapterId !== current?.id,
+  );
+  const statusText = taskRunning
+    ? (task?.statusLine || '正在生成…')
+    : otherRunning
+      ? `CHA${chapters.find((c) => c.id === otherRunning.chapterId)?.chapter_number ?? '?'} 有任务在跑（完成后自动保存，可切过去看）`
+      : status;
+
   const actions = [
     hasContent
       ? { op: 'continue', label: '续写', variant: 'primary' as const }
@@ -386,7 +380,11 @@ export default function ProjectWorkspace() {
               }`}
               onClick={() => selectChapter(c.id)}
             >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[c.status] || ''}`} />
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                tasks[c.id]?.status === 'running'
+                  ? 'bg-[var(--accent)] animate-pulse'
+                  : STATUS_DOT[c.status] || ''
+              }`} />
               <span className="text-[11px] font-mono text-[var(--text-muted)] shrink-0 w-11">
                 CHA{c.chapter_number}
               </span>
@@ -480,14 +478,20 @@ export default function ProjectWorkspace() {
             <div className="flex-1 flex min-h-0">
               {/* 正文编辑区 */}
               <div className="flex-1 flex flex-col min-w-0">
-                {isRunning && streamText ? (
+                {taskRunning ? (
                   <div className="flex-1 overflow-auto p-5">
                     <div className="text-xs text-[var(--text-muted)] mb-2">
-                      AI 正在写…（完成后会写入正文）
+                      AI 正在写…（完成后自动写入正文，中途切走页面也不丢）
                     </div>
-                    <div className="whitespace-pre-wrap text-[15px] leading-8 text-[var(--text-secondary)] stream-cursor font-serif">
-                      {streamText}
-                    </div>
+                    {task?.text ? (
+                      <div className="whitespace-pre-wrap text-[15px] leading-8 text-[var(--text-secondary)] stream-cursor font-serif">
+                        {task.text}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[var(--text-muted)] m-0">
+                        正在准备上下文，还没开始出字…
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <textarea
@@ -540,6 +544,13 @@ export default function ProjectWorkspace() {
                       <p className="text-[11px] text-[var(--text-muted)] mt-0 mb-2">
                         上一章的压缩摘要。写本章时只给 AI 看这个，不给它看后面的章节。
                       </p>
+                      {current.chapter_number === 1 && !precha.precha_time && !precha.precha_process ? (
+                        <p className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded-lg p-3 leading-relaxed m-0">
+                          这是第一章，没有上一章，所以没有 PRECHA。
+                          可以先写正文——写 CHA2 时会自动从这一章提取。
+                        </p>
+                      ) : (
+                      <>
                       <div className="grid grid-cols-2 gap-2 mb-2">
                         {(['precha_name', 'precha_link'] as const).map((k) => (
                           <label key={k} className="text-[11px] text-[var(--text-muted)]">
@@ -567,6 +578,8 @@ export default function ProjectWorkspace() {
                         className="mt-2 w-full py-1.5 bg-[var(--success)] text-white border-none rounded text-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                         {prechaDirty ? '保存 PRECHA' : '已保存'}
                       </button>
+                      </>
+                      )}
                     </>
                   )}
 
@@ -666,9 +679,9 @@ export default function ProjectWorkspace() {
         <CommandBar
           actions={actions}
           onRun={runCommand}
-          isRunning={isRunning}
+          isRunning={taskRunning}
           onStop={stopCommand}
-          status={status || undefined}
+          status={statusText || undefined}
           placeholder={
             hasContent
               ? '留空直接续写；或写修改意见后点「重写」，例如：把老贺的对白削掉一半，结尾落在示波器的读数上'

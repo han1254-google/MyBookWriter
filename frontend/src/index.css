@@ -28,9 +28,10 @@
     line-height: 1.6;
   }
 
+  /* 不能是 flex：#root 里唯一的子元素 Layout 作为 flex 子项不会横向撑满，
+     整个页面宽度收缩到内容宽度，右边留下一片空白 */
   #root {
     min-height: 100vh;
-    display: flex;
   }
 
   /* Scrollbar */

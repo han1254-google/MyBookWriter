@@ -16,7 +16,7 @@ export default function Layout() {
   const { sidebarCollapsed, toggleSidebar } = useAppStore();
 
   return (
-    <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    <div className="flex h-screen w-full bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {/* Sidebar */}
       <aside className={`flex flex-col bg-[var(--bg-secondary)] border-r border-[var(--border)] transition-all duration-200 ${sidebarCollapsed ? 'w-16' : 'w-56'}`}>
         <div className="p-4 border-b border-[var(--border)]">

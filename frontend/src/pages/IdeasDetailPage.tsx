@@ -117,6 +117,19 @@ export default function IdeasDetailPage() {
     try { setRevisions(await ideasApi.revisions(ideaId)); } catch { /* 忽略 */ }
   };
 
+  // 点「显示」= 切换成那个版本。每次编辑本来就叠一个版本，
+  // 当前状态早就在历史里，切换只是把「当前」指过去，不产生新版本。
+  const showRev = async (versionNo: number) => {
+    try {
+      const r = await ideasApi.loadVersion(ideaId, versionNo);
+      setIdea(r.idea);
+      setEntities(r.idea.entities || []);
+      addToast(`已切换到 v${versionNo}`, 'success');
+    } catch (e) {
+      addToast(`切换失败: ${(e as Error).message}`, 'error');
+    }
+  };
+
   // ---- 分区保存 ----
   const saveField = (field: keyof Idea) => async (v: string) => {
     try {
@@ -197,16 +210,8 @@ export default function IdeasDetailPage() {
     );
   };
 
-  const revert = async (versionNo: number) => {
-    if (!confirm(`回滚到 v${versionNo}？当前内容会先存成一版，可以再滚回来。`)) return;
-    try {
-      const r = await ideasApi.revert(ideaId, versionNo);
-      setIdea(r.idea);
-      setEntities(r.idea.entities || []);
-      addToast(`已回滚到 v${versionNo}`, 'success');
-      loadRevisions();
-    } catch (e) { addToast(`回滚失败: ${(e as Error).message}`, 'error'); }
-  };
+  // 不做回滚：每次变动自动叠加一个新版本，版本历史只用于「看」，
+  // 要改回什么就从旧版复制出来自己改。避免回滚把后续改动也埋掉。
 
   const createProject = async () => {
     try {
@@ -331,7 +336,8 @@ export default function IdeasDetailPage() {
                 {revisions.length === 0 ? (
                   <p className="text-xs text-[var(--text-muted)] m-0">暂无历史版本</p>
                 ) : revisions.map((r) => (
-                  <div key={r.id} className="flex items-center gap-2 text-xs py-1">
+                  <div key={r.id} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg hover:bg-[var(--bg-tertiary)] cursor-pointer"
+                    onClick={() => showRev(r.version_no)}>
                     <span className="text-[var(--text-muted)] w-10">v{r.version_no}</span>
                     <span className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                       {r.op_label}
@@ -340,9 +346,9 @@ export default function IdeasDetailPage() {
                       {r.instruction || '—'}
                     </span>
                     <span className="text-[var(--text-muted)]">{r.char_count} 字符</span>
-                    <button onClick={() => revert(r.version_no)}
+                    <button onClick={(e) => { e.stopPropagation(); showRev(r.version_no); }}
                       className="text-[var(--accent)] bg-none border-none cursor-pointer hover:underline">
-                      回滚
+                      显示
                     </button>
                   </div>
                 ))}

@@ -274,3 +274,32 @@ def apply_structure(idea, structure, replace_entities=True):
             sort_order=e.get("sort_order", 0),
         ))
     return len(entities)
+
+
+def snapshot_idea(idea):
+    """
+    拍下创意当前状态的完整快照（结构化字段 + 人物与设定）。
+
+    「每个版本都是完整的」：存版本时把这个 dict 塞进 Revision.snapshot，
+    点开旧版本就能还原当时的整页状态，而不是只有一坨正文。
+    """
+    entities = (StoryEntity.query.filter_by(idea_id=idea.id)
+                .order_by(StoryEntity.kind, StoryEntity.sort_order).all())
+    return {
+        "title": idea.title or "",
+        "one_liner": idea.one_liner or "",
+        "core_concept": idea.core_concept or "",
+        "worldview": idea.worldview or "",
+        "themes": idea.themes or "",
+        "opening": idea.opening or "",
+        "sources": json.loads(idea.sources or "[]"),
+        "structured_ok": bool(idea.structured_ok),
+        "entities": [{
+            "kind": e.kind,
+            "name": e.name or "",
+            "summary": e.summary or "",
+            "detail": e.detail or "",
+            "attributes": e.attributes or "{}",
+            "sort_order": e.sort_order or 0,
+        } for e in entities],
+    }

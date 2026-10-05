@@ -176,6 +176,26 @@ export interface Project {
   updated_at: string;
 }
 
+/** 创意版本的完整快照：结构化字段 + 人物与设定（Revision.snapshot） */
+export interface IdeaSnapshot {
+  title: string;
+  one_liner: string;
+  core_concept: string;
+  worldview: string;
+  themes: string;
+  opening: string;
+  sources: Array<Record<string, unknown>>;
+  structured_ok: boolean;
+  entities: Array<{
+    kind: string;
+    name: string;
+    summary: string;
+    detail: string;
+    attributes: string;
+    sort_order: number;
+  }>;
+}
+
 export interface Revision {
   id: number;
   target_type: string;
@@ -186,6 +206,7 @@ export interface Revision {
   instruction: string;
   char_count: number;
   content?: string;
+  snapshot?: IdeaSnapshot;
   created_at: string;
 }
 
@@ -236,8 +257,11 @@ export const ideasApi = {
       { method: 'POST', body: JSON.stringify(data) }),
 
   revisions: (id: number) => request<Revision[]>(`/ideas/${id}/revisions`),
-  revert: (id: number, versionNo: number) =>
-    request<{ success: boolean; idea: Idea }>(`/ideas/${id}/revert/${versionNo}`,
+  revision: (id: number, versionNo: number) =>
+    request<Revision>(`/ideas/${id}/revisions/${versionNo}`),
+  /** 把某个历史版本回填成当前页面内容（当前状态先存版，载入后再存版） */
+  loadVersion: (id: number, versionNo: number) =>
+    request<{ success: boolean; idea: Idea }>(`/ideas/${id}/load-version/${versionNo}`,
       { method: 'POST' }),
 };
 
